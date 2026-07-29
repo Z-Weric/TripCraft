@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TripCraft — 智能旅游攻略生成器</title>
+<style>
+  /* ===== Reset & Base ===== */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --paper: #FBF7F0;
+    --card: #FFFFFF;
+    --ink: #2C2418;
+    --ink-2: #6B5B4A;
+    --ink-3: #8B7B6A;
+    --accent: #C9622A;
+    --accent-dark: #B55220;
+    --accent-darker: #A04818;
+    --accent-light: #E8DCC8;
+    --border-soft: #D4C4A8;
+    --line: #E8DCC8;
+    --cat-nature: #5B8C5A;
+    --cat-food: #C9622A;
+    --cat-history: #8B6F4E;
+    --cat-shopping: #B8860B;
+    --success: #5B8C5A;
+    --warn: #C9622A;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== Typography ===== */
+  .serif { font-family: Georgia, "Songti SC", "STSong", serif; }
+  .mono { font-family: "SF Mono", "Roboto Mono", "Cascadia Code", monospace; font-variant-numeric: tabular-nums; }
+
+  /* ===== Layout ===== */
+  .page { max-width: 800px; margin: 0 auto; padding: 0 32px; }
+
+  /* ===== Header ===== */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    max-width: 800px;
+    margin: 0 auto;
+    border-bottom: 1px solid var(--line);
+    gap: 16px;
+  }
+  .logo { font-size: 22px; font-weight: 700; letter-spacing: 0.04em; }
+  .logo span { color: var(--accent); }
+  .header-meta { font-size: 13px; color: var(--ink-3); }
+  .header-link {
+    font-size: 13px;
+    color: var(--ink-2);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border-soft);
+    padding-bottom: 1px;
+  }
+  .header-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ===== Search Section ===== */
+  .search-section { padding: 40px 0 32px; }
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .search-box {
+    background: var(--card);
+    border: 2px solid var(--accent);
+    border-radius: 2px;
+    padding: 20px 24px;
+  }
+  .search-row {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .search-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 120px;
+    padding: 0 16px;
+    border-right: 1px solid var(--line);
+  }
+  .search-field:first-child { padding-left: 0; }
+  .search-field label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  .search-field input, .search-field select {
+    border: none;
+    background: transparent;
+    font-size: 15px;
+    color: var(--ink);
+    outline: none;
+    font-family: inherit;
+    padding: 4px 0;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .search-field select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238B7B6A' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right center;
+    padding-right: 20px;
+  }
+  .search-field input::placeholder { color: var(--ink-3); }
+
+  .search-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 0 28px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    border-radius: 2px;
+    transition: background 0.15s;
+    letter-spacing: 0.04em;
+    align-self: stretch;
+    margin-left: 16px;
+  }
+  .search-btn:hover { background: var(--accent-dark); }
+  .search-btn:active { background: var(--accent-darker); }
+  .search-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .search-btn:disabled { background: var(--ink-3); cursor: not-allowed; }
+
+  .prefs {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .pref-tag {
+    padding: 5px 16px;
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    font-size: 13px;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+    background: transparent;
+  }
+  .pref-tag:hover { border-color: var(--accent); }
+  .pref-tag.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  /* ===== Loading Bar ===== */
+  .loading-bar {
+    height: 3px;
+    background: var(--line);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 16px;
+    display: none;
+  }
+  .loading-bar.active { display: block; }
+  .loading-bar::after {
+    content: '';
+    display: block;
+    height: 100%;
+    width: 40%;
+    background: var(--accent);
+    border-radius: 2px;
+    animation: loading-slide 1.2s ease-in-out infinite;
+  }
+  @keyframes loading-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+
+  /* ===== Itinerary ===== */
+  .itinerary-section { padding: 16px 0 32px; }
+
+  .day-block {
+    margin-bottom: 48px;
+  }
+  .day-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 24px;
+  }
+  .day-num { font-size: 28px; font-weight: 700; letter-spacing: 0.02em; }
+  .day-cost {
+    font-size: 15px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .timeline { position: relative; padding-left: 28px; }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 10px;
+    bottom: 10px;
+    width: 2px;
+    background: var(--line);
+  }
+  .timeline-item {
+    position: relative;
+    padding-bottom: 24px;
+  }
+  .timeline-item:last-child { padding-bottom: 0; }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -28px;
+    top: 6px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--accent);
+    z-index: 1;
+  }
+  .timeline-item:hover::before { background: var(--accent); }
+
+  .item-time { font-size: 12px; color: var(--ink-3); margin-bottom: 2px; }
+  .item-spot { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .item-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--ink-2);
+    align-items: center;
+  }
+  .item-cat {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+  .item-cat.nature { background: rgba(91,140,90,0.12); color: var(--cat-nature); }
+  .item-cat.food { background: rgba(201,98,42,0.12); color: var(--cat-food); }
+  .item-cat.history { background: rgba(139,111,78,0.15); color: var(--cat-history); }
+  .item-cat.shopping { background: rgba(184,134,11,0.12); color: var(--cat-shopping); }
+
+  .item-price { font-weight: 600; }
+  .item-price.free { color: var(--success); }
+  .item-note {
+    font-size: 13px;
+    color: var(--ink-3);
+    margin-top: 4px;
+    line-height: 1.6;
+    font-style: italic;
+  }
+
+  .day-transport {
+    font-size: 13px;
+    color: var(--ink-2);
+    margin-top: 8px;
+    padding-left: 28px;
+    border-top: 1px dashed var(--line);
+    padding-top: 8px;
+  }
+
+  /* ===== Map Section ===== */
+  .map-section { padding: 16px 0 32px; }
+  .map-container {
+    background: #EDE9DA;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+  }
+  .map-placeholder {
+    text-align: center;
+    color: var(--ink-3);
+  }
+  .map-placeholder .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .map-placeholder .routes {
+    font-size: 15px;
+    color: var(--accent);
+    font-weight: 600;
+    line-height: 2;
+  }
+  .map-route-day { display: block; }
+  .map-route-day .day-tag {
+    font-size: 11px;
+    color: var(--ink-3);
+    font-weight: 400;
+    margin-right: 8px;
+  }
+
+  /* ===== Cost Section ===== */
+  .cost-section { padding: 16px 0 32px; }
+  .cost-container {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 24px;
+  }
+  .cost-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+  .cost-chart-area { display: flex; flex-direction: column; gap: 12px; }
+  .chart-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .chart-label { font-size: 13px; color: var(--ink-2); width: 56px; }
+  .chart-track {
+    flex: 1;
+    height: 10px;
+    background: var(--paper);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .chart-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+  .chart-amt {
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+    width: 64px;
+    text-align: right;
+  }
+
+  .cost-summary { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+  .cost-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .cost-total-row .label { font-size: 14px; font-weight: 600; }
+  .cost-total-row .value { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .cost-budget-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .cost-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--success);
+  }
+  .cost-status::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .cost-util {
+    font-size: 12px;
+    color: var(--ink-3);
+    text-align: center;
+    margin-top: 4px;
+  }
+  .util-bar {
+    height: 6px;
+    background: var(--paper);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .util-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+  }
+
+  /* ===== Feedback Bar ===== */
+  .feedback-section { padding: 16px 0 48px; }
+  .feedback-bar {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .fb-btn {
+    padding: 10px 24px;
+    border: 1px solid var(--border-soft);
+    background: var(--card);
+    color: var(--ink-2);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .fb-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .fb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fb-btn.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .fb-btn.primary:hover { background: var(--accent-dark); }
+
+  /* ===== Verification Badges ===== */
+  .verification {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .verify-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .verify-badge::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .verify-badge.pass::before { background: var(--success); }
+  .verify-badge.fail::before { background: var(--warn); }
+
+  /* ===== Summary ===== */
+  .trip-summary {
+    font-size: 15px;
+    color: var(--ink-2);
+    text-align: center;
+    margin: 24px 0;
+    font-style: italic;
+    line-height: 1.8;
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 768px) {
+    .page { padding: 0 16px; }
+    header { padding: 16px; max-width: 100%; gap: 8px; }
+    .header-meta { display: none; }
+    .search-box { padding: 16px; }
+    .search-row { flex-direction: column; gap: 12px; }
+    .search-field {
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      padding: 0 0 8px 0;
+      min-width: 100%;
+    }
+    .search-field:last-child { border-bottom: none; }
+    .search-btn { margin-left: 0; padding: 12px; width: 100%; }
+    .cost-grid { grid-template-columns: 1fr; gap: 16px; }
+    .map-container { height: 240px; }
+    .day-num { font-size: 22px; }
+    .item-spot { font-size: 16px; }
+    .feedback-bar { flex-direction: column; }
+    .fb-btn { width: 100%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+    .loading-bar::after { animation: none; display: none; }
+    .loading-bar.active::after { display: block; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo serif">Trip<span>Craft</span></div>
+  <div class="header-meta">3 天杭州 · 预算 ¥2000</div>
+  <a href="#" class="header-link">GitHub</a>
+</header>
+
+<div class="page">
+
+  <!-- ===== Search ===== -->
+  <section class="search-section">
+    <div class="section-title">规划你的旅程</div>
+    <div class="search-box">
+      <div class="search-row">
+        <div class="search-field">
+          <label for="dest">目的地</label>
+          <input type="text" id="dest" value="杭州" placeholder="输入城市名">
+        </div>
+        <div class="search-field">
+          <label for="days">天数</label>
+          <select id="days">
+            <option>2 天</option>
+            <option selected>3 天</option>
+            <option>5 天</option>
+          </select>
+        </div>
+        <div class="search-field">
+          <label for="budget">预算 (元)</label>
+          <input type="number" id="budget" value="2000" placeholder="如 2000">
+        </div>
+        <button class="search-btn" id="generateBtn" onclick="handleGenerate()">生成攻略</button>
+      </div>
+      <div class="prefs" id="prefs">
+        <span class="pref-tag active" data-pref="美食">美食</span>
+        <span class="pref-tag active" data-pref="自然风光">自然风光</span>
+        <span class="pref-tag active" data-pref="亲子">亲子</span>
+        <span class="pref-tag" data-pref="购物">购物</span>
+        <span class="pref-tag" data-pref="历史文化">历史文化</span>
+      </div>
+      <div class="loading-bar" id="loadingBar"></div>
+    </div>
+  </section>
+
+  <!-- ===== Verification Badges ===== -->
+  <div class="verification" id="verification">
+    <span class="verify-badge pass">景点真实性验证通过</span>
+    <span class="verify-badge pass">预算合规</span>
+    <span class="verify-badge pass">路线合理性验证通过</span>
+  </div>
+
+  <!-- ===== Summary ===== -->
+  <div class="trip-summary serif" id="tripSummary">
+    3 天杭州自然 + 美食之旅，适合亲子
+  </div>
+
+  <!-- ===== Itinerary ===== -->
+  <section class="itinerary-section" id="itinerary">
+    <!-- Day 1 -->
+    <div class="day-block">
+      <div class="day-header">
+        <div class="day-num serif">Day 1</div>
+        <div class="day-cost mono">¥290</div>
+      </div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="item-time mono">09:00 — 12:00</div>
+          <div class="item-spot serif">西湖</div>
+          <div class="item-meta">
+            <span class="item-cat nature">自然风光</span>
+            <span>3h</span>
+            <span class="item-price free">免费</span>
+          </div>
+          <div class="item-note">免费，建议从断桥开始沿白堤步行</div>
+        </div>
+        <div class="timeline-item">
+          <div class="item-time mono">12:00 — 13:30</div>
+          <div class="item-spot serif">楼外楼</div>
+          <div class="item-meta">
+            <span class="item-cat food">美食</span>
+            <span>1.5h</span>
+            <span class="item-price mono">¥200</span>
+          </div>
+          <div class="item-note">西湖醋鱼必点，人均 100 元</div>
+        </div>
+        <div class="timeline-item">
+          <div class="item-time mono">14:00 — 16:00</div>
+          <div class="item-spot serif">灵隐寺</div>
+          <div class="item-meta">
+            <span class="item-cat history">历史文化</span>
+            <span>2h</span>
+            <span class="item-price mono">¥75</span>
+          </div>
+          <div class="item-note">飞来峰石窟值得看</div>
+        </div>
+      </div>
+      <div class="day-transport">交通：步行 + 公交，约 ¥15</div>
+    </div>
+
+    <!-- Day 2 -->
+    <div class="day-block">
+      <div class="day-header">
+        <div class="day-num serif">Day 2</div>
+        <div class="day-cost mono">¥360</div>
+      </div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="item-time mono">09:00 — 11:30</div>
+          <div class="item-spot serif">千岛湖</div>
+          <div class="item-meta">
+            <span class="item-cat nature">自然风光</span>
+            <span>2.5h</span>
+            <span class="item-price mono">¥130</span>
+          </div>
+          <div class="item-note">建议提前购票，船票含在门票内</div>
+        </div>
+        <div class="timeline-item">
+          <div class="item-time mono">12:00 — 13:00</div>
+          <div class="item-spot serif">千岛湖鱼味馆</div>
+          <div class="item-meta">
+            <span class="item-cat food">美食</span>
+            <span>1h</span>
+            <span class="item-price mono">¥150</span>
+          </div>
+          <div class="item-note">有机鱼头汤是招牌，人均 75 元</div>
+        </div>
+        <div class="timeline-item">
+          <div class="item-time mono">14:00 — 17:00</div>
+          <div class="item-spot serif">芹川古村</div>
+          <div class="item-meta">
+            <span class="item-cat history">历史文化</span>
+            <span>3h</span>
+            <span class="item-price free">免费</span>
+          </div>
+          <div class="item-note">免费，徽派建筑群保存完好</div>
+        </div>
+      </div>
+      <div class="day-transport">交通：自驾 / 大巴，约 ¥80</div>
+    </div>
+
+    <!-- Day 3 -->
+    <div class="day-block">
+      <div class="day-header">
+        <div class="day-num serif">Day 3</div>
+        <div class="day-cost mono">¥390</div>
+      </div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="item-time mono">09:00 — 11:00</div>
+          <div class="item-spot serif">西溪湿地</div>
+          <div class="item-meta">
+            <span class="item-cat nature">自然风光</span>
+            <span>2h</span>
+            <span class="item-price mono">¥80</span>
+          </div>
+          <div class="item-note">摇橹船体验推荐，船票另付 60 元</div>
+        </div>
+        <div class="timeline-item">
+          <div class="item-time mono">11:30 — 13:00</div>
+          <div class="item-spot serif">知味观</div>
+          <div class="item-meta">
+            <span class="item-cat food">美食</span>
+            <span>1.5h</span>
+            <span class="item-price mono">¥100</span>
+          </div>
+          <div class="item-note">杭帮菜老字号，猫耳朵必点</div>
+        </div>
+        <div class="timeline-item">
+          <div class="item-time mono">14:00 — 16:00</div>
+          <div class="item-spot serif">河坊街</div>
+          <div class="item-meta">
+            <span class="item-cat shopping">购物</span>
+            <span>2h</span>
+            <span class="item-price mono">¥200</span>
+          </div>
+          <div class="item-note">特产伴手礼采购，定胜糕推荐</div>
+        </div>
+      </div>
+      <div class="day-transport">交通：地铁 + 步行，约 ¥10</div>
+    </div>
+  </section>
+
+  <!-- ===== Map ===== -->
+  <section class="map-section">
+    <div class="section-title">路线地图</div>
+    <div class="map-container" id="mapContainer">
+      <div class="map-placeholder">
+        <div class="label">Leaflet 地图 · 按天分色路线</div>
+        <div class="routes">
+          <span class="map-route-day"><span class="day-tag">Day 1</span>西湖 → 楼外楼 → 灵隐寺</span>
+          <span class="map-route-day"><span class="day-tag">Day 2</span>千岛湖 → 鱼味馆 → 芹川古村</span>
+          <span class="map-route-day"><span class="day-tag">Day 3</span>西溪湿地 → 知味观 → 河坊街</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Cost Analysis ===== -->
+  <section class="cost-section">
+    <div class="section-title">花费分析</div>
+    <div class="cost-container">
+      <div class="cost-grid">
+        <div class="cost-chart-area">
+          <div class="chart-row">
+            <span class="chart-label">餐饮</span>
+            <div class="chart-track"><div class="chart-fill" style="width:43%;background:#C9622A"></div></div>
+            <span class="chart-amt mono">¥450</span>
+          </div>
+          <div class="chart-row">
+            <span class="chart-label">景点</span>
+            <div class="chart-track"><div class="chart-fill" style="width:27%;background:#8B6F4E"></div></div>
+            <span class="chart-amt mono">¥285</span>
+          </div>
+          <div class="chart-row">
+            <span class="chart-label">交通</span>
+            <div class="chart-track"><div class="chart-fill" style="width:10%;background:#5B8C5A"></div></div>
+            <span class="chart-amt mono">¥105</span>
+          </div>
+          <div class="chart-row">
+            <span class="chart-label">购物</span>
+            <div class="chart-track"><div class="chart-fill" style="width:19%;background:#B8860B"></div></div>
+            <span class="chart-amt mono">¥200</span>
+          </div>
+        </div>
+        <div class="cost-summary">
+          <div class="cost-total-row">
+            <span class="label">总计</span>
+            <span class="value mono">¥1,040</span>
+          </div>
+          <div class="cost-budget-row">
+            <span>预算</span>
+            <span class="mono">¥2,000</span>
+          </div>
+          <div class="cost-status">预算内</div>
+          <div class="util-bar">
+            <div class="util-fill" style="width:52%"></div>
+          </div>
+          <div class="cost-util">预算利用率 52%</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Feedback ===== -->
+  <section class="feedback-section">
+    <div class="feedback-bar">
+      <button class="fb-btn" onclick="handleFeedback('useful')">有用</button>
+      <button class="fb-btn" onclick="handleFeedback('improve')">需改进</button>
+      <button class="fb-btn primary" onclick="handleRegenerate()">重新生成</button>
+      <button class="fb-btn" onclick="handleExport()">导出 PDF</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // Pref tag toggle
+  document.querySelectorAll('.pref-tag').forEach(tag => {
+    tag.setAttribute('role', 'checkbox');
+    tag.setAttribute('tabindex', '0');
+    tag.setAttribute('aria-checked', tag.classList.contains('active'));
+    tag.addEventListener('click', () => {
+      tag.classList.toggle('active');
+      tag.setAttribute('aria-checked', tag.classList.contains('active'));
+    });
+    tag.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tag.click(); }
+    });
+  });
+
+  // Generate
+  function handleGenerate() {
+    const btn = document.getElementById('generateBtn');
+    const bar = document.getElementById('loadingBar');
+    btn.disabled = true;
+    btn.textContent = '生成中...';
+    bar.classList.add('active');
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '生成攻略';
+      bar.classList.remove('active');
+    }, 2000);
+  }
+
+  // Feedback
+  function handleFeedback(type) {
+    alert(type === 'useful' ? '感谢反馈！已记录"有用"' : '感谢反馈！请告诉我们哪里需要改进');
+  }
+
+  // Regenerate
+  function handleRegenerate() {
+    if (confirm('重新生成将覆盖当前行程，是否继续？')) {
+      handleGenerate();
+    }
+  }
+
+  // Export
+  function handleExport() {
+    alert('正在导出 PDF...');
+  }
+</script>
+
+</body>
+</html>

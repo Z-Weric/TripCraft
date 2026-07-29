@@ -1,0 +1,64 @@
+/* TripCraft — Postcard 风格全局样式 */
+
+:root {
+  --paper: #FBF7F0;
+  --card: #FFFFFF;
+  --ink: #2C2418;
+  --ink-2: #6B5B4A;
+  --ink-3: #8B7B6A;
+  --accent: #C9622A;
+  --line: #E8DCC8;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Leaflet 地图在明信片风格下的微调 */
+.leaflet-container {
+  font-family: -apple-system, "PingFang SC", sans-serif !important;
+}
+
+.leaflet-popup-content {
+  font-size: 13px !important;
+}
+
+/* Ant Design 主题微调 */
+.ant-btn-primary {
+  background: #C9622A !important;
+}
+
+.ant-checkbox-checked .ant-checkbox-inner {
+  background: #C9622A !important;
+  border-color: #C9622A !important;
+}
+
+.ant-select:hover .ant-select-selector {
+  border-color: #C9622A !important;
+}
+
+.ant-input:focus, .ant-input-focused {
+  border-color: #C9622A !important;
+  box-shadow: 0 0 0 2px rgba(201, 98, 42, 0.1) !important;
+}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
