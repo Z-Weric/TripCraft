@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Form, Input, InputNumber, Select, Button, Checkbox, message } from "antd";
-import { EnvironmentOutlined, CalendarOutlined, DollarOutlined, HeartOutlined } from "@ant-design/icons";
+import { Form, Input, Select, InputNumber, Button, message } from "antd";
+import { MapPin, Calendar, CircleDollarSign, Compass } from "lucide-react";
 import type { GenerateRequest } from "../services/api";
 
 const { Option } = Select;
-
-const PREFERENCES = ["美食", "自然风光", "亲子", "购物", "历史文化"];
+const PREFERENCES = ["自然风光", "美食", "历史文化", "购物", "亲子"];
+const HOT_CITIES = ["杭州", "成都", "西安", "厦门", "苏州", "南京", "重庆", "长沙", "青岛", "大理"];
 
 interface SearchBarProps {
   onGenerate: (req: GenerateRequest) => void;
@@ -13,130 +13,97 @@ interface SearchBarProps {
 }
 
 export default function SearchBar({ onGenerate, loading }: SearchBarProps) {
-  const [form] = Form.useForm();
   const [destination, setDestination] = useState("杭州");
   const [days, setDays] = useState(3);
   const [budget, setBudget] = useState(2000);
-  const [preferences, setPreferences] = useState<string[]>(["美食", "自然风光", "亲子"]);
+  const [preferences, setPreferences] = useState<string[]>(["自然风光", "美食", "亲子"]);
 
   const handleSubmit = () => {
-    if (!destination.trim()) {
-      message.warning("请输入目的地");
-      return;
-    }
-    onGenerate({
-      destination: destination.trim(),
-      days,
-      budget,
-      preferences,
-    });
+    if (!destination.trim()) { message.warning("请输入目的地"); return; }
+    onGenerate({ destination: destination.trim(), days, budget, preferences });
   };
 
-  const formItemStyle = { marginBottom: 16 };
-
   return (
-    <div
-      style={{
-        background: "#FFFFFF",
-        border: "2px solid #C9622A",
-        borderRadius: 2,
-        padding: "20px 24px",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 15,
-          fontWeight: 600,
-          color: "#6B5B4A",
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          marginBottom: 16,
-        }}
-      >
-        规划你的旅程
+    <div className="relative my-8 px-1 md:px-3 pt-6 pb-2">
+      {/* 底层复古卡片 */}
+      <div className="absolute inset-0 bg-[#FBF7F0] border border-[#E4D7C1] rounded-lg shadow-sm transform rotate-[-2deg] -translate-x-2 translate-y-1.5 pointer-events-none overflow-hidden" />
+      <div className="absolute inset-0 bg-[#F4ECD8] border border-[#DFCEAF] rounded-lg shadow-md transform rotate-[1.5deg] translate-x-2.5 translate-y-2 pointer-events-none" />
+
+      {/* 邮票装饰 */}
+      <div className="absolute -top-6 right-8 w-18 h-22 bg-[#FFFDF7] p-1 shadow-lg border border-[#DFCEAF] transform rotate-[12deg] pointer-events-none z-0 hidden sm:block overflow-hidden">
+        <div className="absolute inset-0 bg-[#FFFDF9] border-2 border-double border-primary/30 m-0.5 flex flex-col items-center justify-between p-1">
+          <div className="text-[7px] font-bold text-primary/60 font-mono tracking-wider">POSTAGE</div>
+          <Compass className="w-7 h-7 text-primary/40" />
+          <div className="text-[8px] font-bold text-[#5A4032] font-mono">¥ 1.20</div>
+        </div>
       </div>
 
-      <Form form={form} layout="vertical">
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <Form.Item label="目的地" style={{ ...formItemStyle, flex: "1 1 150px" }}>
-            <Input
-              prefix={<EnvironmentOutlined style={{ color: "#8B7B6A" }} />}
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="输入城市名"
-              style={{ borderBottom: "1px solid #E8DCC8" }}
-            />
-          </Form.Item>
-
-          <Form.Item label="天数" style={{ ...formItemStyle, flex: "1 1 100px" }}>
-            <Select
-              value={days}
-              onChange={setDays}
-              suffixIcon={<CalendarOutlined style={{ color: "#8B7B6A" }} />}
-            >
-              <Option value={2}>2 天</Option>
-              <Option value={3}>3 天</Option>
-              <Option value={5}>5 天</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item label="预算 (元)" style={{ ...formItemStyle, flex: "1 1 120px" }}>
-            <InputNumber
-              prefix={<DollarOutlined style={{ color: "#8B7B6A" }} />}
-              value={budget}
-              onChange={(v) => setBudget(v || 2000)}
-              min={500}
-              max={50000}
-              step={500}
-              style={{ width: "100%" }}
-            />
-          </Form.Item>
-
-          <Form.Item label=" " style={{ ...formItemStyle, flex: "0 0 auto" }}>
-            <Button
-              type="primary"
-              onClick={handleSubmit}
-              loading={loading}
-              style={{
-                background: "#C9622A",
-                borderColor: "#C9622A",
-                borderRadius: 2,
-                fontWeight: 600,
-                letterSpacing: "0.04em",
-                height: 32,
-              }}
-            >
-              生成攻略
-            </Button>
-          </Form.Item>
+      {/* 主表单 */}
+      <div className="relative z-10 bg-[#FFFDF9] border-[3px] border-double border-primary rounded-lg p-6 md:p-8 shadow-lg transform rotate-[-0.2deg] hover:rotate-0 transition-transform duration-300">
+        <div className="text-sm font-bold text-foreground-secondary uppercase tracking-widest mb-5 font-mono flex items-center gap-1.5">
+          <span className="text-primary">◇</span> 规划你的个性化明信片旅程
         </div>
 
-        <Form.Item label="偏好" style={{ marginBottom: 0 }}>
-          <Checkbox.Group
-            value={preferences}
-            onChange={(vals) => setPreferences(vals as string[])}
-          >
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {PREFERENCES.map((pref) => (
-                <Checkbox
-                  key={pref}
-                  value={pref}
-                  style={{
-                    margin: 0,
-                    padding: "5px 16px",
-                    border: "1px solid #D4C4A8",
-                    borderRadius: 20,
-                    fontSize: 13,
-                    color: "#6B5B4A",
-                  }}
-                >
-                  {pref}
-                </Checkbox>
-              ))}
+        <Form layout="vertical" onFinish={handleSubmit}>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div className="md:col-span-1">
+              <label className="block text-xs font-bold text-foreground-secondary uppercase tracking-wider mb-2 font-mono">目的地 / City</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-2.5 h-4 w-4 text-foreground-tertiary z-10" />
+                <Input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="你想去哪里？"
+                  className="pl-9 h-10 border-b border-t-0 border-l-0 border-r-0 border-border hover:border-primary focus:border-primary rounded-none shadow-none font-semibold" />
+              </div>
             </div>
-          </Checkbox.Group>
-        </Form.Item>
-      </Form>
+            <div>
+              <label className="block text-xs font-bold text-foreground-secondary uppercase tracking-wider mb-2 font-mono">天数 / Days</label>
+              <Select value={days} onChange={setDays} className="w-full" style={{ height: '40px' }}
+                popupMatchSelectWidth={false}>
+                <Option value={2}>2 天行程</Option>
+                <Option value={3}>3 天精选</Option>
+                <Option value={5}>5 天深度</Option>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-foreground-secondary uppercase tracking-wider mb-2 font-mono">人均预算 (元)</label>
+              <InputNumber value={budget} onChange={(v) => setBudget(v || 2000)} min={500} max={50000} step={500} controls={false}
+                className="w-full h-10 rounded-none border-b border-t-0 border-l-0 border-r-0 border-border hover:border-primary focus:border-primary" />
+            </div>
+            <div>
+              <Button type="primary" htmlType="submit" loading={loading}
+                className="w-full h-10 bg-primary border-primary hover:bg-primary-dark active:scale-[0.98] transition-transform text-white font-bold tracking-wider rounded-sm uppercase">
+                {loading ? "生成中..." : "生成旅行攻略"}
+              </Button>
+            </div>
+          </div>
+
+          {/* 热门城市 */}
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-foreground-tertiary font-mono mr-2">快捷推荐:</span>
+            {HOT_CITIES.map((city) => (
+              <button key={city} onClick={() => setDestination(city)} type="button"
+                className={`text-xs px-2.5 py-1 border rounded-full transition-all ${destination === city ? "bg-primary text-background border-primary" : "border-border text-foreground-secondary hover:border-primary hover:text-primary"}`}>
+                {city}
+              </button>
+            ))}
+          </div>
+
+          {/* 偏好 */}
+          <div className="mt-6 pt-4 border-t border-dashed border-border">
+            <label className="block text-xs font-bold text-foreground-secondary uppercase tracking-wider mb-3 font-mono">选择你的旅行偏好 / Preferences</label>
+            <div className="flex flex-wrap gap-2.5">
+              {PREFERENCES.map((pref) => {
+                const active = preferences.includes(pref);
+                return (
+                  <button key={pref} type="button" onClick={() => setPreferences(active ? preferences.filter(p => p !== pref) : [...preferences, pref])}
+                    className={`text-sm px-4 py-2 border-2 rounded-full transition-all font-semibold ${active ? "bg-primary text-background border-primary" : "border-border text-foreground-secondary hover:border-primary hover:text-primary"}`}>
+                    {pref}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </Form>
+      </div>
     </div>
   );
 }

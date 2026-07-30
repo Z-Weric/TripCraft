@@ -1,61 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* TripCraft — Postcard 风格全局样式 */
 
 :root {
   --paper: #FBF7F0;
   --card: #FFFFFF;
-  --ink: #2C2418;
-  --ink-2: #6B5B4A;
-  --ink-3: #8B7B6A;
+  --ink: #2C1810;
   --accent: #C9622A;
-  --line: #E8DCC8;
-}
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+  --line: #E8DFD0;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  background: var(--paper);
-  color: var(--ink);
+  background: #FBF7F0;
+  color: #2C1810;
   -webkit-font-smoothing: antialiased;
+  background-image:
+    repeating-linear-gradient(90deg, transparent, transparent 4px, rgba(44, 24, 16, 0.006) 4px, rgba(44, 24, 16, 0.006) 8px),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(44, 24, 16, 0.008) 2px, rgba(44, 24, 16, 0.008) 4px);
 }
 
 #root {
   min-height: 100vh;
 }
 
-/* Leaflet 地图在明信片风格下的微调 */
-.leaflet-container {
-  font-family: -apple-system, "PingFang SC", sans-serif !important;
+/* ===== 修复 Tailwind preflight 与 Ant Design 冲突 ===== */
+
+/* 恢复 Ant Design 组件需要的默认样式 */
+.ant-select, .ant-select-item, .ant-input, .ant-input-number,
+.ant-btn, .ant-tag, .ant-modal, .ant-alert, .ant-checkbox,
+.ant-timeline, .ant-picker, .ant-form-item {
+  box-sizing: border-box;
 }
 
-.leaflet-popup-content {
-  font-size: 13px !important;
+/* Ant Design Select 内部布局修复 */
+.ant-select-selector {
+  display: flex !important;
+  align-items: center !important;
+  height: 40px !important;
+}
+.ant-select-selection-item {
+  line-height: 38px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+.ant-select-selection-search {
+  display: flex !important;
+  align-items: center !important;
 }
 
-/* Ant Design 主题微调 */
-.ant-btn-primary {
-  background: #C9622A !important;
+/* Ant Design Input 修复 */
+.ant-input {
+  line-height: 1.5 !important;
 }
 
-.ant-checkbox-checked .ant-checkbox-inner {
-  background: #C9622A !important;
-  border-color: #C9622A !important;
+/* ===== 3D 翻转明信片 ===== */
+.postcard-perspective { perspective: 1600px; }
+.postcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform-style: preserve-3d;
+}
+.postcard-inner.is-flipped { transform: rotateY(180deg); }
+.postcard-front, .postcard-back {
+  width: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.postcard-back { transform: rotateY(180deg); }
+
+/* ===== Leaflet 地图样式 ===== */
+.leaflet-container { font-family: -apple-system, "PingFang SC", sans-serif !important; }
+.leaflet-popup-content { font-size: 13px !important; }
+
+/* ===== 自定义滚动条 ===== */
+.scrollbar-thin::-webkit-scrollbar { width: 5px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: #C9622A; border-radius: 3px; }
+
+/* ===== 打印样式 ===== */
+@media print {
+  body { background: white !important; color: black !important; }
+  .no-print { display: none !important; }
+  .postcard-front, .postcard-back {
+    position: static !important;
+    transform: none !important;
+    backface-visibility: visible !important;
+    display: block !important;
+    page-break-after: always;
+  }
 }
 
-.ant-select:hover .ant-select-selector {
-  border-color: #C9622A !important;
-}
-
-.ant-input:focus, .ant-input-focused {
-  border-color: #C9622A !important;
-  box-shadow: 0 0 0 2px rgba(201, 98, 42, 0.1) !important;
-}
-
-/* 减少动画偏好 */
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
