@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, X, RotateCcw, Sparkles, Compass, Footprints, Flame, Landmark } from "lucide-react";
+import { chatWithPetStream } from "../services/api";
 
 const PET_IMAGE = "https://mdn.alipayobjects.com/fecodex_image/afts/img/w2HuSYUISTsAAAAAWzAAAAgAejH3AQBr/original";
 
@@ -10,7 +11,7 @@ const QUICK_QUESTIONS = [
   { icon: <Footprints className="w-3.5 h-3.5" />, text: "首次独自旅行需要准备什么？" }
 ];
 
-interface Msg { id: string; role: string; content: string; time: string }
+interface Msg { id: string; role: string; content: string; time: string; thinking?: string }
 
 export default function TravelPet() {
   const [isOpen, setIsOpen] = useState(false);
@@ -45,17 +46,45 @@ export default function TravelPet() {
     setInputValue("");
     setLoading(true);
 
-    // 模拟 AI 回复（本地无 LLM，用预设回复）
-    setTimeout(() => {
-      const replies = [
-        "咕咕！好问题~ 让我想想……推荐你试试成都的宽窄巷子配一碗盖碗茶，或者大理洱海边骑行看日落，都是绝佳体验！",
-        "哈哈，旅行者的好奇心真旺盛！关于这个问题，你可以试试在搜索栏输入目的地和偏好，让 TripCraft 为你生成专属行程明信片哦~",
-        "咕咕~ 作为一只有文化的信鸽，我建议你关注景点的开放时间和最佳游览季节。比如西湖春天看花、秋天赏月最合适！",
-      ];
-      const reply = replies[Math.floor(Math.random() * replies.length)];
-      setMessages(prev => [...prev, { id: Date.now().toString() + "r", role: "assistant", content: reply, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+    // 调用后端 RAG 流式问答
+    const replyId = Date.now().toString() + "r";
+    const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // 先插入一条空消息，思考过程和回答内容都更新到这条
+    setMessages(prev => [...prev, { id: replyId, role: "assistant", content: "", time: replyTime }]);
+
+    let thinkingText = "";
+    let contentText = "";
+
+    try {
+      await chatWithPetStream(
+        text,
+        undefined,
+        (thinking) => {
+          thinkingText += thinking + "\n";
+          setMessages(prev => prev.map(m =>
+            m.id === replyId
+              ? { ...m, content: contentText, thinking: thinkingText }
+              : m
+          ));
+        },
+        (chunk) => {
+          contentText += chunk;
+          setMessages(prev => prev.map(m =>
+            m.id === replyId
+              ? { ...m, content: contentText, thinking: thinkingText }
+              : m
+          ));
+        },
+        () => {},
+      );
+    } catch {
+      setMessages(prev => prev.map(m =>
+        m.id === replyId ? { ...m, content: "咕咕~ 服务暂时不可用，请稍后再试。" } : m
+      ));
+    } finally {
       setLoading(false);
-    }, 1200);
+    }
   };
 
   const handleReset = () => {
@@ -110,12 +139,18 @@ export default function TravelPet() {
                   <div className="w-8 h-8 rounded-full border border-primary/40 p-0.5 bg-background overflow-hidden shrink-0"><img src={PET_IMAGE} alt="Crafty" className="w-full h-full object-cover rounded-full" /></div>
                 )}
                 <div className={`max-w-[78%] p-3 rounded-lg text-xs ${msg.role === "user" ? "bg-primary text-background rounded-tr-none" : "bg-[#F4ECD8] border border-primary/20 text-foreground-secondary rounded-tl-none"}`}>
-                  <p className="whitespace-pre-line leading-relaxed">{msg.content}</p>
+                  {msg.role === "assistant" && msg.thinking && (
+                    <div className="mb-2 pb-2 border-b border-primary/15 text-[10px] text-foreground-tertiary font-mono leading-relaxed">
+                      <span className="text-primary font-bold">思考过程:</span>
+                      <div className="mt-0.5 opacity-70 whitespace-pre-line">{msg.thinking}</div>
+                    </div>
+                  )}
+                  <p className="whitespace-pre-line leading-relaxed">{msg.content || (loading && msg.role === "assistant" ? "" : "")}</p>
                   <p className={`text-[9px] mt-1 font-mono ${msg.role === "user" ? "text-background/60" : "text-foreground-tertiary"}`}>{msg.time}</p>
                 </div>
               </div>
             ))}
-            {loading && (
+            {loading && !messages.some(m => m.role === "assistant" && m.content === "") && (
               <div className="flex gap-2.5 items-start justify-start animate-pulse">
                 <div className="w-8 h-8 rounded-full border border-primary/40 p-0.5 bg-background overflow-hidden shrink-0"><img src={PET_IMAGE} alt="Crafty" className="w-full h-full object-cover rounded-full" /></div>
                 <div className="p-3 rounded-lg text-xs bg-[#F4ECD8] border border-primary/20 rounded-tl-none flex items-center gap-1.5 text-primary font-mono text-[10px] font-black"><span className="animate-bounce">💌</span><span>信件投递中...</span></div>
