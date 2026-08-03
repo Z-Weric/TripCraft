@@ -3,6 +3,9 @@ node_modules/
 __pycache__/
 *.pyc
 data/tripcraft.db
+data/*.pkl
 backend/.env
 frontend/dist/
 .vite/
+.env.local
+.env.*.local

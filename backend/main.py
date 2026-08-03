@@ -1,34 +1,24 @@
-"""TripCraft 后端入口 — FastAPI"""
+"""TripCraft 后端入口 — FastAPI (v2 异步版)"""
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from config import settings
 from database.models import init_db, SessionLocal, POI
 from api import generate, verify, feedback, pois, chat
+from api import generate_stream, itineraries, share, weather, packing
+from api.errors import TripCraftError, trip_error_handler
 from services.rag_service import build_index_from_pois, is_index_ready
-
-app = FastAPI(title="TripCraft API", version="2.0.0")
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 注册路由
-app.include_router(generate.router)
-app.include_router(verify.router)
-app.include_router(feedback.router)
-app.include_router(pois.router)
-app.include_router(chat.router)
+from utils.logger import logger
 
 
-@app.on_event("startup")
-def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动
+    logger.info("TripCraft 启动中...")
     init_db()
+    logger.info("数据库初始化完成")
 
     # 构建 RAG 向量索引
     if not is_index_ready():
@@ -46,6 +36,39 @@ def startup():
         db.close()
         if poi_list:
             build_index_from_pois(poi_list)
+            logger.info(f"RAG 索引构建完成：{len(poi_list)} 个景点")
+
+    logger.info("TripCraft 启动完成")
+    yield
+    # 关闭
+    logger.info("TripCraft 关闭")
+
+
+app = FastAPI(title="TripCraft API", version="2.0.0", lifespan=lifespan)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 注册路由
+app.include_router(generate.router)
+app.include_router(generate_stream.router)
+app.include_router(verify.router)
+app.include_router(feedback.router)
+app.include_router(pois.router)
+app.include_router(chat.router)
+app.include_router(itineraries.router)
+app.include_router(share.router)
+app.include_router(weather.router)
+app.include_router(packing.router)
+
+# 注册异常处理
+app.add_exception_handler(TripCraftError, trip_error_handler)
 
 
 @app.get("/")

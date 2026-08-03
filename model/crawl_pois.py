@@ -65,7 +65,7 @@ DURATION_ESTIMATE = {
 
 
 def crawl_pois(city: str, keywords: str, category: str, page: int = 1) -> List[Dict[str, Any]]:
-    """调用高德 POI 搜索 API"""
+    """调用高德 POI 搜索 API（含评分数据）"""
     params = {
         "key": AMAP_API_KEY,
         "keywords": keywords,
@@ -73,7 +73,7 @@ def crawl_pois(city: str, keywords: str, category: str, page: int = 1) -> List[D
         "citylimit": "true",
         "offset": 20,
         "page": page,
-        "extensions": "base",
+        "extensions": "all",  # all 返回详细信息含 biz_ext.rating
     }
     try:
         resp = httpx.get(AMAP_POI_URL, params=params, timeout=10)
@@ -93,6 +93,30 @@ def crawl_pois(city: str, keywords: str, category: str, page: int = 1) -> List[D
             if not name:
                 continue
 
+            # 提取高德评分
+            biz_ext = poi.get("biz_ext", {}) or {}
+            rating_str = biz_ext.get("rating", "")
+            try:
+                rating = float(rating_str) if rating_str else 0
+            except (ValueError, TypeError):
+                rating = 0
+
+            # 提取门票价格（高德 deepinfo 中可能有）
+            deepinfo = poi.get("deepinfo", {}) or {}
+            cost = COST_ESTIMATE.get(category, 50)
+            # 尝试从 deepinfo 中获取门票价格
+            if deepinfo:
+                ticket = deepinfo.get("ticket", "")
+                if ticket and ticket != "无":
+                    # 尝试提取数字
+                    import re
+                    price_match = re.search(r'(\d+)', ticket)
+                    if price_match:
+                        cost = int(price_match.group(1))
+
+            # 提取营业时间作为 duration 参考
+            opentime = (deepinfo or {}).get("opentime", "") or poi.get("opentime", "")
+
             pois.append({
                 "city": city,
                 "name": name,
@@ -100,10 +124,10 @@ def crawl_pois(city: str, keywords: str, category: str, page: int = 1) -> List[D
                 "lat": float(lat),
                 "lng": float(lng),
                 "address": poi.get("address", "") or "",
-                "cost": COST_ESTIMATE.get(category, 50),
+                "cost": cost,
                 "duration": DURATION_ESTIMATE.get(category, "2h"),
-                "note": f"高德类型: {poi.get('type', '未知')}",
-                "rating": 0,
+                "note": f"高德类型: {poi.get('type', '未知')}" + (f" | 评分: {rating}" if rating > 0 else ""),
+                "rating": rating,
             })
         return pois
     except Exception as e:
@@ -154,7 +178,9 @@ def crawl_all_cities():
                 time.sleep(0.15)
 
         db.commit()
-        print(f"  {city}: {city_count} 个景点")
+        # 统计有评分的景点
+        rated = db.query(POI).filter(POI.city == city, POI.rating > 0).count()
+        print(f"  {city}: {city_count} 个景点 (其中 {rated} 个有评分)")
         total += city_count
 
     db.close()
@@ -176,7 +202,11 @@ if __name__ == "__main__":
 
     # 验证
     db = SessionLocal()
+    total_rated = 0
     for city in CITIES:
         count = db.query(POI).filter(POI.city == city).count()
-        print(f"  {city}: {count} 个景点")
+        rated = db.query(POI).filter(POI.city == city, POI.rating > 0).count()
+        total_rated += rated
+        print(f"  {city}: {count} 个景点, {rated} 个有评分")
+    print(f"\n有评分景点总计: {total_rated} / {db.query(POI).count()}")
     db.close()

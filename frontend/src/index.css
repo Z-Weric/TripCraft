@@ -10,16 +10,44 @@
   --ink: #2C1810;
   --accent: #C9622A;
   --line: #E8DFD0;
+  --bg-main: #FBF7F0;
+  --bg-secondary: #FFF9F0;
+  --bg-tertiary: #F5EEE0;
+  --fg-main: #2C1810;
+  --fg-secondary: #5A4032;
+  --fg-tertiary: #8B7355;
+  --border-default: #D4C5B0;
+  --border-light: #E8DFD0;
+  --paper-texture-opacity: 0.008;
+}
+
+/* Postcard Night — 深色模式 */
+.dark {
+  --paper: #1A1814;
+  --card: #252220;
+  --ink: #D4C5B0;
+  --accent: #C9622A;
+  --line: #3A3530;
+  --bg-main: #1A1814;
+  --bg-secondary: #252220;
+  --bg-tertiary: #2D2A26;
+  --fg-main: #D4C5B0;
+  --fg-secondary: #A89784;
+  --fg-tertiary: #7A6B5A;
+  --border-default: #3A3530;
+  --border-light: #2D2A26;
+  --paper-texture-opacity: 0.02;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  background: #FBF7F0;
-  color: #2C1810;
+  background: var(--bg-main);
+  color: var(--fg-main);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
   background-image:
-    repeating-linear-gradient(90deg, transparent, transparent 4px, rgba(44, 24, 16, 0.006) 4px, rgba(44, 24, 16, 0.006) 8px),
-    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(44, 24, 16, 0.008) 2px, rgba(44, 24, 16, 0.008) 4px);
+    repeating-linear-gradient(90deg, transparent, transparent 4px, rgba(44, 24, 16, var(--paper-texture-opacity)) 4px, rgba(44, 24, 16, var(--paper-texture-opacity)) 8px),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(44, 24, 16, var(--paper-texture-opacity)) 2px, rgba(44, 24, 16, var(--paper-texture-opacity)) 4px);
 }
 
 #root {
@@ -80,7 +108,41 @@ body {
 /* ===== 自定义滚动条 ===== */
 .scrollbar-thin::-webkit-scrollbar { width: 5px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background-color: #C9622A; border-radius: 3px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--accent); border-radius: 3px; }
+
+/* ===== 动画体验升级 ===== */
+
+/* 行程结果区块 stagger 入场 */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; opacity: 0; }
+
+/* 数字滚动动画 */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-count-up { animation: countUp 0.4s ease-out forwards; }
+
+/* 地图标记盖章入场 */
+@keyframes stampIn {
+  0% { opacity: 0; transform: scale(0); }
+  60% { opacity: 1; transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+/* 深色模式覆盖 Tailwind 颜色 */
+.dark .bg-background { background-color: var(--bg-main) !important; }
+.dark .bg-background-secondary { background-color: var(--bg-secondary) !important; }
+.dark .bg-background-tertiary { background-color: var(--bg-tertiary) !important; }
+.dark .text-foreground { color: var(--fg-main) !important; }
+.dark .text-foreground-secondary { color: var(--fg-secondary) !important; }
+.dark .text-foreground-tertiary { color: var(--fg-tertiary) !important; }
+.dark .border-border { border-color: var(--border-default) !important; }
+.dark .border-border-light { border-color: var(--border-light) !important; }
+.dark .border-border-dark { border-color: var(--border-default) !important; }
 
 /* ===== 打印样式 ===== */
 @media print {
@@ -100,4 +162,37 @@ body {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ===== 无障碍改进 ===== */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* 键盘 Tab 可见性 */
+.tab-focusable { tabindex: 0; }
+
+/* ===== 移动端深度适配 ===== */
+@media (max-width: 768px) {
+  /* 明信片在移动端不做 3D 翻转，改为上下堆叠 */
+  .postcard-perspective { perspective: none; }
+  .postcard-inner { transform: none !important; transition: none; }
+  .postcard-front, .postcard-back {
+    position: static !important;
+    backface-visibility: visible !important;
+    transform: none !important;
+    margin-bottom: 16px;
+  }
+  .postcard-back { display: block !important; }
+
+  /* 搜索栏表单改为单列 */
+  .grid-cols-4 { grid-template-columns: 1fr !important; }
+
+  /* 地图高度适配 */
+  .leaflet-container { height: 240px !important; }
 }

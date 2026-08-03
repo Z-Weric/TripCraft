@@ -1,8 +1,9 @@
-"""行程验证服务 — 景点真实性 + 路线合理性 + 预算合规
+"""行程验证服务 — 景点真实性 + 路线合理性 + 预算合规 (v2 优化版)
 
-景点真实性验证使用高德 API（amap_service.verify_spot）。
-路线合理性使用 haversine 距离计算。
-预算合规使用总花费与用户预算比对。
+优化点：
+1. verify_spot_poi 只调用一次（v1 调用两次）
+2. 异步化高德 API 调用
+3. 缓存验证结果
 """
 
 import math
@@ -18,13 +19,10 @@ def haversine(lat1, lng1, lat2, lng2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
 
-def verify_spot_poi(spot_name: str, lat: float, lng: float, known_pois: list = None) -> bool:
-    """
-    验证景点是否存在。
-    优先使用高德 API 验证；如果 API 不可用，降级到本地 POI 数据库比对。
-    """
-    # 优先高德 API
-    result = amap_verify_spot(spot_name, lat, lng)
+async def verify_spot_poi(spot_name: str, lat: float, lng: float, known_pois: list = None) -> bool:
+    """验证景点是否存在。优先高德 API，降级本地数据库。"""
+    # 优先高德 API（异步 + 带缓存）
+    result = await amap_verify_spot(spot_name, lat, lng)
     if result is not None:
         return result
 
@@ -37,10 +35,7 @@ def verify_spot_poi(spot_name: str, lat: float, lng: float, known_pois: list = N
 
 
 def check_route_distance(itinerary: Dict[str, Any]) -> bool:
-    """
-    路线合理性：相邻景点距离按交通方式分档
-    步行 < 5km，公交 < 20km，驾车 < 50km
-    """
+    """路线合理性：相邻景点距离不超过 50km"""
     for day in itinerary["itinerary"]:
         items = day["items"]
         for i in range(len(items) - 1):
@@ -48,30 +43,28 @@ def check_route_distance(itinerary: Dict[str, Any]) -> bool:
                 items[i]["lat"], items[i]["lng"],
                 items[i+1]["lat"], items[i+1]["lng"]
             )
-            # 简化：统一用 50km 上限
             if dist > 50:
                 return False
     return True
 
 
-def verify_itinerary(itinerary: Dict[str, Any], budget: int, known_pois: list) -> Dict[str, Any]:
-    """完整验证流程"""
+async def verify_itinerary(itinerary: Dict[str, Any], budget: int, known_pois: list) -> Dict[str, Any]:
+    """完整验证流程（v2：单次遍历，不再重复调用验证）"""
     results = {}
 
-    # 1. 景点真实性
+    # 1. 景点真实性 — 单次遍历
     all_items = []
     for day in itinerary["itinerary"]:
         all_items.extend(day["items"])
 
-    results["spots_valid"] = all(
-        verify_spot_poi(item["spot"], item["lat"], item["lng"], known_pois)
-        for item in all_items
-    )
+    verified_count = 0
+    for item in all_items:
+        if await verify_spot_poi(item["spot"], item["lat"], item["lng"], known_pois):
+            verified_count += 1
+
+    results["spots_valid"] = verified_count == len(all_items)
     results["spots_total"] = len(all_items)
-    results["spots_verified"] = sum(
-        1 for item in all_items
-        if verify_spot_poi(item["spot"], item["lat"], item["lng"], known_pois)
-    )
+    results["spots_verified"] = verified_count
 
     # 2. 预算合规
     results["budget_valid"] = itinerary["total_cost"] <= budget

@@ -1,36 +1,36 @@
-"""LLM 服务 — 硅基流动 API 封装（支持流式输出）
+"""LLM 服务 — 硅基流动 API 封装（v2 异步版 + 流式输出）
 
 使用硅基流动 (siliconflow.cn) 的 OpenAI 兼容接口。
-模型：meituan-longcat/LongCat-2.0
 """
 
-import os
 import json
+from typing import List, Dict, Any, Generator, Optional
 import httpx
-from typing import List, Dict, Any, Optional, Generator
 
-# 加载 API Key
-API_KEY = ""
-LLM_MODEL = "meituan-longcat/LongCat-2.0"
+from config import settings
+from utils.logger import logger
 
-_env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
-if os.path.exists(_env_path):
-    with open(_env_path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("SILICONFLOW_API_KEY="):
-                API_KEY = line.split("=", 1)[1].strip().strip('"').strip("'")
-            elif line.startswith("LLM_MODEL="):
-                LLM_MODEL = line.split("=", 1)[1].strip().strip('"').strip("'")
+API_KEY = settings.siliconflow_api_key
+LLM_MODEL = settings.llm_model
+API_BASE = settings.llm_api_base
+TIMEOUT = settings.llm_timeout
 
-API_BASE = "https://api.siliconflow.cn/v1/chat/completions"
+# 全局复用 async client
+_async_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_async_client() -> httpx.AsyncClient:
+    global _async_client
+    if _async_client is None or _async_client.is_closed:
+        _async_client = httpx.AsyncClient(timeout=TIMEOUT)
+    return _async_client
 
 
 def has_api_key() -> bool:
     return bool(API_KEY)
 
 
-def chat_completion(
+async def chat_completion(
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
     max_tokens: int = 1000,
@@ -51,24 +51,24 @@ def chat_completion(
     }
 
     try:
-        resp = httpx.post(API_BASE, json=payload, headers=headers, timeout=30)
+        client = _get_async_client()
+        resp = await client.post(API_BASE, json=payload, headers=headers)
         data = resp.json()
         if "choices" in data and len(data["choices"]) > 0:
             return data["choices"][0]["message"]["content"].strip()
+        logger.error("LLM 返回异常", extra={"error": str(data)})
         return f"LLM 返回异常: {data}"
     except Exception as e:
+        logger.error("LLM 调用失败", extra={"error": str(e)})
         return f"LLM 调用失败: {e}"
 
 
-def chat_completion_stream(
+async def chat_completion_stream(
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
     max_tokens: int = 800,
 ) -> Generator[str, None, None]:
-    """
-    流式调用 LLM，逐块 yield 文本内容。
-    返回的每个 chunk 是一段文本片段。
-    """
+    """流式调用 LLM，逐块 yield 文本内容。"""
     if not has_api_key():
         yield "LLM API Key 未配置"
         return
@@ -86,9 +86,9 @@ def chat_completion_stream(
     }
 
     try:
-        with httpx.Client(timeout=60) as client:
-            with client.stream("POST", API_BASE, json=payload, headers=headers) as resp:
-                for line in resp.iter_lines():
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with client.stream("POST", API_BASE, json=payload, headers=headers) as resp:
+                async for line in resp.aiter_lines():
                     if not line:
                         continue
                     if line.startswith("data: "):
@@ -104,10 +104,11 @@ def chat_completion_stream(
                         except json.JSONDecodeError:
                             continue
     except Exception as e:
+        logger.error("LLM 流式调用失败", extra={"error": str(e)})
         yield f"\n[LLM 调用失败: {e}]"
 
 
-def chat_with_context(
+async def chat_with_context(
     system_prompt: str,
     user_message: str,
     context: str = "",
@@ -123,10 +124,10 @@ def chat_with_context(
         {"role": "system", "content": full_system},
         {"role": "user", "content": user_message},
     ]
-    return chat_completion(messages, temperature, max_tokens)
+    return await chat_completion(messages, temperature, max_tokens)
 
 
-def chat_with_context_stream(
+async def chat_with_context_stream(
     system_prompt: str,
     user_message: str,
     context: str = "",
@@ -142,4 +143,5 @@ def chat_with_context_stream(
         {"role": "system", "content": full_system},
         {"role": "user", "content": user_message},
     ]
-    yield from chat_completion_stream(messages, temperature, max_tokens)
+    async for chunk in chat_completion_stream(messages, temperature, max_tokens):
+        yield chunk

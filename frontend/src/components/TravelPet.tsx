@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { Send, X, RotateCcw, Sparkles, Compass, Footprints, Flame, Landmark } from "lucide-react";
+import { Send, X, RotateCcw, Sparkles, Compass, Footprints, Flame, Landmark, MapPin } from "lucide-react";
 import { chatWithPetStream } from "../services/api";
+import { useTripStore } from "../stores/itineraryStore";
 
 const PET_IMAGE = "https://mdn.alipayobjects.com/fecodex_image/afts/img/w2HuSYUISTsAAAAAWzAAAAgAejH3AQBr/original";
 
-const QUICK_QUESTIONS = [
+const BASE_QUICK_QUESTIONS = [
   { icon: <Compass className="w-3.5 h-3.5" />, text: "哪些城市最适合避暑和避寒？" },
   { icon: <Flame className="w-3.5 h-3.5" />, text: "西安和杭州有什么本地特色美食？" },
   { icon: <Landmark className="w-3.5 h-3.5" />, text: "推荐一些冷门但极具人文历史的景点" },
@@ -14,6 +15,8 @@ const QUICK_QUESTIONS = [
 interface Msg { id: string; role: string; content: string; time: string; thinking?: string }
 
 export default function TravelPet() {
+  const { itinerary } = useTripStore();
+  const currentDestination = itinerary?.destination;
   const [isOpen, setIsOpen] = useState(false);
   const [showBubble, setShowBubble] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -59,7 +62,7 @@ export default function TravelPet() {
     try {
       await chatWithPetStream(
         text,
-        undefined,
+        currentDestination,
         (thinking) => {
           thinkingText += thinking + "\n";
           setMessages(prev => prev.map(m =>
@@ -161,9 +164,17 @@ export default function TravelPet() {
 
           {/* 快捷问题 */}
           <div className="px-3 py-2 bg-[#F4ECD8]/40 border-t border-primary/10 shrink-0">
-            <span className="text-[10px] font-display italic text-foreground-tertiary block mb-1.5 font-bold">点击信纸快速打听：</span>
+            <span className="text-[10px] font-display italic text-foreground-tertiary block mb-1.5 font-bold">
+              {currentDestination ? `点击信纸快速打听${currentDestination}：` : "点击信纸快速打听："}
+            </span>
             <div className="flex flex-wrap gap-1.5">
-              {QUICK_QUESTIONS.map((item, idx) => (
+              {currentDestination && (
+                <>
+                  <button onClick={() => handleSendMessage(`${currentDestination}有什么隐藏的冷门景点？`)} className="text-[10px] px-2 py-1 border border-primary/40 rounded-sm hover:border-primary hover:text-primary text-primary transition-all flex items-center gap-1"><MapPin className="w-3 h-3" />{currentDestination}冷门景点</button>
+                  <button onClick={() => handleSendMessage(`${currentDestination}有什么必吃的美食？`)} className="text-[10px] px-2 py-1 border border-primary/40 rounded-sm hover:border-primary hover:text-primary text-primary transition-all flex items-center gap-1"><Flame className="w-3 h-3" />{currentDestination}美食</button>
+                </>
+              )}
+              {BASE_QUICK_QUESTIONS.map((item, idx) => (
                 <button key={idx} onClick={() => handleSendMessage(item.text)} className="text-[10px] px-2 py-1 border border-border rounded-sm hover:border-primary hover:text-primary text-foreground-secondary transition-all flex items-center gap-1">{item.icon}{item.text}</button>
               ))}
             </div>

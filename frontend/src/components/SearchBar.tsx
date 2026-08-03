@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { Form, Input, Select, InputNumber, Button, message } from "antd";
-import { MapPin, Calendar, CircleDollarSign, Compass } from "lucide-react";
+import { MapPin, Compass, Star } from "lucide-react";
 import type { GenerateRequest } from "../services/api";
 
 const { Option } = Select;
 const PREFERENCES = ["自然风光", "美食", "历史文化", "购物", "亲子"];
 const HOT_CITIES = ["杭州", "成都", "西安", "厦门", "苏州", "南京", "重庆", "长沙", "青岛", "大理"];
+
+/** 权重标签：0=未选, 1=普通, 2=喜欢, 3=强烈推荐 */
+const WEIGHT_LABELS: Record<number, string> = { 0: "", 1: "普通", 2: "喜欢", 3: "强烈推荐" };
 
 interface SearchBarProps {
   onGenerate: (req: GenerateRequest) => void;
@@ -16,11 +19,27 @@ export default function SearchBar({ onGenerate, loading }: SearchBarProps) {
   const [destination, setDestination] = useState("杭州");
   const [days, setDays] = useState(3);
   const [budget, setBudget] = useState(2000);
-  const [preferences, setPreferences] = useState<string[]>(["自然风光", "美食", "亲子"]);
+  const [prefWeights, setPrefWeights] = useState<Record<string, number>>({
+    "自然风光": 2, "美食": 2, "亲子": 1, "历史文化": 0, "购物": 0,
+  });
+
+  const handlePrefClick = (pref: string) => {
+    setPrefWeights(prev => {
+      const current = prev[pref] || 0;
+      // 0 → 1 → 2 → 3 → 0 循环
+      const next = (current + 1) % 4;
+      return { ...prev, [pref]: next };
+    });
+  };
 
   const handleSubmit = () => {
     if (!destination.trim()) { message.warning("请输入目的地"); return; }
-    onGenerate({ destination: destination.trim(), days, budget, preferences });
+    // 按权重降序排列偏好，权重>0 的才传入
+    const sortedPrefs = Object.entries(prefWeights)
+      .filter(([, w]) => w > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([p]) => p);
+    onGenerate({ destination: destination.trim(), days, budget, preferences: sortedPrefs });
   };
 
   return (
@@ -69,7 +88,7 @@ export default function SearchBar({ onGenerate, loading }: SearchBarProps) {
                 className="w-full h-10 rounded-none border-b border-t-0 border-l-0 border-r-0 border-border hover:border-primary focus:border-primary" />
             </div>
             <div>
-              <Button type="primary" htmlType="submit" loading={loading}
+              <Button type="primary" htmlType="submit" loading={loading} aria-label={loading ? "正在生成行程" : "生成旅行攻略"}
                 className="w-full h-10 bg-primary border-primary hover:bg-primary-dark active:scale-[0.98] transition-transform text-white font-bold tracking-wider rounded-sm uppercase">
                 {loading ? "生成中..." : "生成旅行攻略"}
               </Button>
@@ -87,16 +106,35 @@ export default function SearchBar({ onGenerate, loading }: SearchBarProps) {
             ))}
           </div>
 
-          {/* 偏好 */}
+          {/* 偏好权重 */}
           <div className="mt-6 pt-4 border-t border-dashed border-border">
-            <label className="block text-xs font-bold text-foreground-secondary uppercase tracking-wider mb-3 font-mono">选择你的旅行偏好 / Preferences</label>
+            <label className="block text-xs font-bold text-foreground-secondary uppercase tracking-wider mb-2 font-mono">
+              选择你的旅行偏好 / Preferences <span className="text-foreground-tertiary normal-case font-normal ml-2">（点击切换权重：普通 → 喜欢 → 强烈推荐）</span>
+            </label>
             <div className="flex flex-wrap gap-2.5">
               {PREFERENCES.map((pref) => {
-                const active = preferences.includes(pref);
+                const weight = prefWeights[pref] || 0;
+                const active = weight > 0;
                 return (
-                  <button key={pref} type="button" onClick={() => setPreferences(active ? preferences.filter(p => p !== pref) : [...preferences, pref])}
-                    className={`text-sm px-4 py-2 border-2 rounded-full transition-all font-semibold ${active ? "bg-primary text-background border-primary" : "border-border text-foreground-secondary hover:border-primary hover:text-primary"}`}>
+                  <button key={pref} type="button" onClick={() => handlePrefClick(pref)} aria-label={`${pref} 偏好权重: ${WEIGHT_LABELS[weight] || "未选"}`}
+                    className={`text-sm px-4 py-2 border-2 rounded-full transition-all font-semibold flex items-center gap-1.5 ${
+                      active
+                        ? weight === 3
+                          ? "bg-primary text-background border-primary shadow-md"
+                          : weight === 2
+                            ? "bg-primary/80 text-background border-primary"
+                            : "bg-primary/15 text-primary border-primary/50"
+                        : "border-border text-foreground-secondary hover:border-primary hover:text-primary"
+                    }`}>
                     {pref}
+                    {active && (
+                      <span className="flex items-center gap-0.5">
+                        {Array.from({ length: weight }).map((_, i) => (
+                          <Star key={i} className="w-2.5 h-2.5 fill-current" />
+                        ))}
+                      </span>
+                    )}
+                    {active && <span className="text-[9px] font-mono opacity-70">{WEIGHT_LABELS[weight]}</span>}
                   </button>
                 );
               })}

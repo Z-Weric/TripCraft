@@ -1,40 +1,26 @@
-"""高德 API 服务 — POI 查询 + 景点验证
+"""高德 API 服务 — POI 查询 + 景点验证 (v2 异步版 + 缓存)
 
-使用高德地图 Web API 进行真实的 POI 搜索和景点真实性验证。
 API Key 配置在环境变量 AMAP_API_KEY 或 backend/.env 中。
 """
 
-import os
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
+from config import settings
+from services.cache import amap_verify_cache
+from utils.logger import logger
 
-# 加载 API Key — 优先环境变量，其次 .env 文件
-AMAP_API_KEY = os.environ.get("AMAP_API_KEY", "")
-
-# 尝试从 .env 读取（不依赖 python-dotenv，简单读取）
-if not AMAP_API_KEY:
-    _env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
-    if os.path.exists(_env_path):
-        with open(_env_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("AMAP_API_KEY="):
-                    AMAP_API_KEY = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-
-AMAP_POI_URL = "https://restapi.amap.com/v3/place/text"
-AMAP_GEO_URL = "https://restapi.amap.com/v3/geocode/geo"
+AMAP_API_KEY = settings.amap_api_key
+AMAP_POI_URL = settings.amap_poi_url
+AMAP_GEO_URL = settings.amap_geo_url
+AMAP_TIMEOUT = settings.amap_timeout
 
 
 def has_api_key() -> bool:
     return bool(AMAP_API_KEY)
 
 
-def search_pois(city: str, category: str = None, db_pois: List[Dict] = None) -> List[Dict[str, Any]]:
-    """
-    查询景点 POI 数据。
-    优先使用高德 API，如果 API Key 不存在则降级到本地数据库。
-    """
+async def search_pois(city: str, category: str = None, db_pois: List[Dict] = None) -> List[Dict[str, Any]]:
+    """查询景点 POI 数据。优先高德 API，降级本地数据库。"""
     if not has_api_key():
         # 降级到本地数据库
         results = []
@@ -56,7 +42,6 @@ def search_pois(city: str, category: str = None, db_pois: List[Dict] = None) -> 
             })
         return results
 
-    # 高德 API 查询
     keywords = category or "景点"
     params = {
         "key": AMAP_API_KEY,
@@ -68,8 +53,9 @@ def search_pois(city: str, category: str = None, db_pois: List[Dict] = None) -> 
         "extensions": "base",
     }
     try:
-        resp = httpx.get(AMAP_POI_URL, params=params, timeout=5)
-        data = resp.json()
+        async with httpx.AsyncClient(timeout=AMAP_TIMEOUT) as client:
+            resp = await client.get(AMAP_POI_URL, params=params)
+            data = resp.json()
         if data.get("status") != "1":
             return []
         pois = []
@@ -90,17 +76,20 @@ def search_pois(city: str, category: str = None, db_pois: List[Dict] = None) -> 
                 "rating": 0,
             })
         return pois
-    except Exception:
+    except Exception as e:
+        logger.error("高德 POI 查询失败", extra={"error": str(e), "city": city})
         return []
 
 
-def verify_spot(spot_name: str, lat: float, lng: float) -> bool:
-    """
-    通过高德 API 验证景点是否存在。
-    使用关键词搜索 + 经纬度比对。
-    """
+async def verify_spot(spot_name: str, lat: float, lng: float) -> bool:
+    """通过高德 API 验证景点是否存在。结果缓存 24h。"""
+    cache_key = f"verify:{spot_name}:{lat:.4f}:{lng:.4f}"
+    cached = amap_verify_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     if not has_api_key():
-        return True  # 无 API Key 时跳过验证，返回 True
+        return True  # 无 API Key 时跳过验证
 
     params = {
         "key": AMAP_API_KEY,
@@ -110,9 +99,11 @@ def verify_spot(spot_name: str, lat: float, lng: float) -> bool:
         "extensions": "base",
     }
     try:
-        resp = httpx.get(AMAP_POI_URL, params=params, timeout=5)
-        data = resp.json()
+        async with httpx.AsyncClient(timeout=AMAP_TIMEOUT) as client:
+            resp = await client.get(AMAP_POI_URL, params=params)
+            data = resp.json()
         if data.get("status") != "1":
+            amap_verify_cache.set(cache_key, False)
             return False
         for poi in data.get("pois", []):
             location = poi.get("location", "")
@@ -121,9 +112,11 @@ def verify_spot(spot_name: str, lat: float, lng: float) -> bool:
             poi_lng, poi_lat = location.split(",")
             poi_lat = float(poi_lat)
             poi_lng = float(poi_lng)
-            # 经纬度偏差在 0.02 度（约 2km）以内视为匹配
             if abs(poi_lat - lat) < 0.02 and abs(poi_lng - lng) < 0.02:
+                amap_verify_cache.set(cache_key, True)
                 return True
+        amap_verify_cache.set(cache_key, False)
         return False
-    except Exception:
+    except Exception as e:
+        logger.error("高德景点验证失败", extra={"error": str(e), "spot": spot_name})
         return False

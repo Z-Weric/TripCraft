@@ -1,4 +1,4 @@
-"""POST /api/verify — 验证行程"""
+"""POST /api/verify — 验证行程 (v2 异步版)"""
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -16,10 +16,10 @@ class VerifyRequest(BaseModel):
 
 
 @router.post("/api/verify")
-def verify(req: VerifyRequest, db: Session = Depends(get_db)):
+async def verify(req: VerifyRequest, db: Session = Depends(get_db)):
     pois = db.query(POI).all()
     poi_dicts = [
         {"name": p.name, "lat": p.lat, "lng": p.lng}
         for p in pois
     ]
-    return verify_itinerary(req.itinerary, req.budget, poi_dicts)
+    return await verify_itinerary(req.itinerary, req.budget, poi_dicts)

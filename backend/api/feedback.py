@@ -1,4 +1,4 @@
-"""POST /api/feedback — 用户反馈"""
+"""POST /api/feedback — 用户反馈 (v2 异步版)"""
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -6,6 +6,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from database.models import get_db, Feedback
+from utils.logger import logger
 
 router = APIRouter()
 
@@ -20,7 +21,7 @@ class FeedbackRequest(BaseModel):
 
 
 @router.post("/api/feedback")
-def feedback(req: FeedbackRequest, db: Session = Depends(get_db)):
+async def feedback(req: FeedbackRequest, db: Session = Depends(get_db)):
     fb = Feedback(
         destination=req.destination,
         days=req.days,
@@ -31,4 +32,5 @@ def feedback(req: FeedbackRequest, db: Session = Depends(get_db)):
     )
     db.add(fb)
     db.commit()
+    logger.info(f"用户反馈: {req.feedback_type} for {req.destination}")
     return {"status": "ok", "id": fb.id}
