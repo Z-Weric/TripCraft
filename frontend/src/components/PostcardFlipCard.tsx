@@ -34,6 +34,21 @@ const MAIN_IMAGES: Record<string, string> = {
 };
 const DEFAULT_MAIN = "/stamps/default-main.png";
 
+/** 城市明信片背面背景映射 */
+const BACK_IMAGES: Record<string, string> = {
+  "杭州": "/stamps/hangzhou-back.png",
+  "成都": "/stamps/chengdu-back.png",
+  "西安": "/stamps/xian-back.png",
+  "大理": "/stamps/dali-back.png",
+  "厦门": "/stamps/xiamen-back.png",
+  "苏州": "/stamps/suzhou-back.png",
+  "南京": "/stamps/nanjing-back.png",
+  "重庆": "/stamps/chongqing-back.png",
+  "长沙": "/stamps/changsha-back.png",
+  "青岛": "/stamps/qingdao-back.png",
+};
+const DEFAULT_BACK = "/stamps/default-back.png";
+
 const CITY_CONFIGS: Record<string, any> = {
   "杭州": {
     sealName: "西湖十景",
@@ -158,11 +173,12 @@ export default function PostcardFlipCard({ itinerary, userName = "旅行者", wo
       </div>
 
       {/* 3D 卡片 */}
-      <div className="postcard-perspective w-full min-h-[580px] cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
-        <div className={`postcard-inner ${isFlipped ? "is-flipped" : ""}`}>
+      <div className="postcard-perspective w-full cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
+        <div className={`postcard-inner ${isFlipped ? "is-flipped" : ""}`} style={{ minHeight: "640px" }}>
 
           {/* 正面 */}
-          <div className="postcard-front absolute top-0 left-0 w-full min-h-[580px] bg-background-secondary border-2 border-border-dark p-6 md:p-8 rounded-sm flex flex-col justify-between overflow-hidden">
+          <div className="postcard-front absolute top-0 left-0 w-full min-h-[580px] border-2 border-border-dark p-6 md:p-8 rounded-sm flex flex-col justify-between overflow-hidden relative"
+               style={{ backgroundImage: "url(/stamps/postcard-bg.png)", backgroundSize: "cover", backgroundPosition: "center" }}>
             {/* 顶栏水印 */}
             <div className="flex justify-between items-center border-b border-border-light pb-3 mb-4 select-none">
               <span className="text-[10px] text-foreground-disabled font-mono tracking-widest uppercase flex items-center gap-1">
@@ -175,7 +191,7 @@ export default function PostcardFlipCard({ itinerary, userName = "旅行者", wo
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-8 flex-1 items-stretch">
               {/* 左侧 */}
-              <div className="md:col-span-7 flex flex-col justify-between space-y-4">
+              <div className="md:col-span-7 flex flex-col justify-start space-y-3">
                 <div className="space-y-3">
                   <div className="relative">
                     <span className="text-sm font-bold uppercase font-mono tracking-widest text-primary block">DESTINATION</span>
@@ -243,12 +259,12 @@ export default function PostcardFlipCard({ itinerary, userName = "旅行者", wo
                 </div>
 
                 {/* 收件人横线 */}
-                <div className="space-y-4 font-mono select-none">
-                  <div className="border-b border-border-dark pb-1 text-xs text-foreground-secondary flex justify-between">
+                <div className="space-y-3 font-mono select-none">
+                  <div className="pb-1.5 text-xs text-foreground-secondary flex items-center gap-2" style={{ borderBottom: "1px solid #8B7355" }}>
                     <span>收件人:</span><span className="font-bold text-foreground font-display italic text-sm">{userName} 同志</span>
                   </div>
-                  <div className="border-b border-border-dark pb-1 text-xs text-foreground-secondary">
-                    <span>寄出地:</span><span className="font-semibold text-foreground ml-2">{destination} 智能微调算法中心</span>
+                  <div className="pb-1.5 text-xs text-foreground-secondary flex items-center gap-2" style={{ borderBottom: "1px solid #8B7355" }}>
+                    <span>寄出地:</span><span className="font-semibold text-foreground">{destination} 智能微调算法中心</span>
                   </div>
                 </div>
 
@@ -264,13 +280,20 @@ export default function PostcardFlipCard({ itinerary, userName = "旅行者", wo
               </div>
             </div>
 
-            <div className="border-t border-border-light pt-3 mt-4 text-center select-none">
+            <div className="border-t border-border-light pt-3 mt-4 text-center select-none relative">
               <span className="text-[9px] text-foreground-disabled font-mono tracking-widest uppercase">DESIGNED BY TRIPCRAFT DESIGN SYSTEM</span>
+              {/* 邮戳装饰 */}
+              <img src="/stamps/ornament-postmark.png" alt="" className="absolute right-2 -top-1 w-10 h-10 opacity-25 pointer-events-none" style={{ mixBlendMode: "multiply" }} />
             </div>
           </div>
 
           {/* 背面 */}
-          <div className="postcard-back absolute top-0 left-0 w-full min-h-[580px] bg-background-secondary border-2 border-border-dark p-6 md:p-8 rounded-sm">
+          <div className="postcard-back absolute top-0 left-0 w-full min-h-[580px] border-2 border-border-dark p-6 md:p-8 rounded-sm"
+               style={{
+                 backgroundImage: `linear-gradient(rgba(251,247,240,0.55), rgba(251,247,240,0.55)), url(${BACK_IMAGES[destination] || DEFAULT_BACK})`,
+                 backgroundSize: "cover",
+                 backgroundPosition: "center",
+               }}>
             <div className="absolute top-4 right-4 text-[10px] text-foreground-disabled font-mono tracking-widest uppercase select-none no-print">TRIPCRAFT POSTCARD BACK</div>
             <ItineraryTimeline itinerary={itinerary} onEdit={onEditDayItems} />
           </div>

@@ -29,7 +29,7 @@ export default function Home() {
     <div className="min-h-screen bg-transparent flex flex-col">
       {/* 顶栏 */}
       <header className="sticky top-0 z-50 bg-background-secondary border-b border-border-light shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-6">
+        <div className="max-w-[888px] mx-auto px-6 h-16 flex items-center justify-between gap-6">
           <span className="text-2xl font-black font-display tracking-tight text-foreground">Trip<span className="text-primary font-bold">Craft</span></span>
           <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] uppercase font-bold tracking-widest border border-primary text-primary rounded-sm">Postcard v2.0</span>
           {itinerary && <span className="text-sm text-foreground-tertiary">{itinerary.days}天{itinerary.destination} · 预算 ¥{lastRequest?.budget}</span>}
@@ -42,7 +42,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
+      <div className="max-w-[888px] mx-auto px-6 py-10 flex-1 w-full">
         {/* 主标题 */}
         <section className="text-center mb-10">
           <h1 className="text-4xl md:text-5xl font-black font-display tracking-tight leading-none text-foreground mb-3 uppercase">Trip<span className="text-primary">Craft</span> AI 行程</h1>
@@ -107,7 +107,7 @@ export default function Home() {
             <section className="animate-fade-in-up" style={{ animationDelay: "100ms" }}><PostcardFlipCard itinerary={itinerary} userName="临心" workNo="549395" onEditDayItems={editDayItems} /></section>
 
             {/* 地图 */}
-            <section className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+            <section className="animate-fade-in-up mt-8" style={{ animationDelay: "200ms" }}>
               <h2 className="text-xl font-bold font-display text-foreground uppercase tracking-wider mb-4 border-l-4 border-primary pl-3">旅行轨迹地图</h2>
               <MapView itinerary={itinerary} />
             </section>
@@ -158,7 +158,7 @@ export default function Home() {
 
       {/* 页脚 */}
       <footer className="border-t border-border-light bg-background-tertiary py-8 text-center text-xs text-foreground-tertiary font-mono tracking-wider">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="max-w-[888px] mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
           <div>TRIPCRAFT &copy; 2026. ALL RIGHTS RESERVED.</div>
           <div className="flex gap-4"><a href="https://github.com/Z-Weric/TripCraft" target="_blank" rel="noreferrer" className="hover:text-primary hover:underline">GITHUB</a><span>·</span><span>POSTCARD DESIGN SYSTEM</span></div>
         </div>

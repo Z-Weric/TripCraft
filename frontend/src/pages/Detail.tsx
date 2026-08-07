@@ -51,7 +51,7 @@ export default function Detail() {
   return (
     <div className="min-h-screen bg-transparent flex flex-col">
       <header className="sticky top-0 z-50 bg-background-secondary border-b border-border-light shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-6">
+        <div className="max-w-[888px] mx-auto px-6 h-16 flex items-center justify-between gap-6">
           <Link to="/" className="text-2xl font-black font-display tracking-tight text-foreground hover:text-primary transition-colors">
             Trip<span className="text-primary font-bold">Craft</span>
           </Link>
@@ -59,7 +59,7 @@ export default function Detail() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
+      <div className="max-w-[888px] mx-auto px-6 py-10 flex-1 w-full">
         <div className="text-center mb-6">
           <p className="text-xs font-mono text-foreground-tertiary tracking-widest uppercase">◇ 分享的旅行明信片 ◇</p>
         </div>

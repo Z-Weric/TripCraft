@@ -35,7 +35,7 @@ export default function History() {
   return (
     <div className="min-h-screen bg-transparent flex flex-col">
       <header className="sticky top-0 z-50 bg-background-secondary border-b border-border-light shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between gap-6">
+        <div className="max-w-[888px] mx-auto px-6 h-16 flex items-center justify-between gap-6">
           <Link to="/" className="text-2xl font-black font-display tracking-tight text-foreground hover:text-primary transition-colors">
             Trip<span className="text-primary font-bold">Craft</span>
           </Link>
@@ -43,7 +43,7 @@ export default function History() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full">
+      <div className="max-w-[888px] mx-auto px-6 py-10 flex-1 w-full">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-black font-display tracking-tight text-foreground mb-1 uppercase">行程历史</h1>
