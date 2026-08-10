@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Form, Input, Select, InputNumber, Button, message } from "antd";
-import { MapPin, Compass, Star } from "lucide-react";
+import { MapPin, Compass, Star, Heart } from "lucide-react";
 import type { GenerateRequest } from "../services/api";
+import { API_BASE } from "../services/config";
+import axios from "axios";
 
 const { Option } = Select;
 const PREFERENCES = ["自然风光", "美食", "历史文化", "购物", "亲子"];
@@ -22,6 +24,17 @@ export default function SearchBar({ onGenerate, loading }: SearchBarProps) {
   const [prefWeights, setPrefWeights] = useState<Record<string, number>>({
     "自然风光": 2, "美食": 2, "亲子": 1, "历史文化": 0, "购物": 0,
   });
+  const [favorFirst, setFavorFirst] = useState(false);
+  const [favCount, setFavCount] = useState(0);
+
+  // 获取收藏数量
+  useEffect(() => {
+    const token = localStorage.getItem("tripcraft-token");
+    if (!token) return;
+    axios.get(`${API_BASE}/api/favorites/ids`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(({ data }) => setFavCount(data.length))
+      .catch(() => {});
+  }, []);
 
   const handlePrefClick = (pref: string) => {
     setPrefWeights(prev => {
@@ -32,14 +45,27 @@ export default function SearchBar({ onGenerate, loading }: SearchBarProps) {
     });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!destination.trim()) { message.warning("请输入目的地"); return; }
     // 按权重降序排列偏好，权重>0 的才传入
     const sortedPrefs = Object.entries(prefWeights)
       .filter(([, w]) => w > 0)
       .sort((a, b) => b[1] - a[1])
       .map(([p]) => p);
-    onGenerate({ destination: destination.trim(), days, budget, preferences: sortedPrefs });
+
+    // 如果开启了收藏优先，获取收藏 ID
+    let favIds: number[] = [];
+    if (favorFirst) {
+      const token = localStorage.getItem("tripcraft-token");
+      if (token) {
+        try {
+          const { data } = await axios.get(`${API_BASE}/api/favorites/ids`, { headers: { Authorization: `Bearer ${token}` } });
+          favIds = data;
+        } catch { /* 忽略 */ }
+      }
+    }
+
+    onGenerate({ destination: destination.trim(), days, budget, preferences: sortedPrefs, favorite_poi_ids: favIds });
   };
 
   return (
@@ -140,6 +166,21 @@ export default function SearchBar({ onGenerate, loading }: SearchBarProps) {
               })}
             </div>
           </div>
+
+          {/* 收藏优先 */}
+          {favCount > 0 && (
+            <div className="mt-4 pt-3 border-t border-dashed border-border flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setFavorFirst(!favorFirst)}
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 border rounded-full transition-all ${favorFirst ? "bg-primary text-white border-primary" : "border-border text-foreground-secondary hover:border-primary"}`}
+              >
+                <Heart className={`w-3.5 h-3.5 ${favorFirst ? "fill-current" : ""}`} />
+                优先收藏景点
+                <span className="text-[10px] opacity-70">({favCount})</span>
+              </button>
+            </div>
+          )}
         </Form>
       </div>
     </div>

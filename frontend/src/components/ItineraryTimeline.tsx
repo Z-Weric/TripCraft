@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Tag } from "antd";
 import { ChevronLeft, ChevronRight, GripVertical, Replace } from "lucide-react";
+import PoiDetailModal from "./PoiDetailModal";
 import {
   DndContext, closestCenter, type DragEndEvent,
   PointerSensor, useSensor, useSensors,
@@ -19,9 +20,10 @@ const CATEGORY_COLORS: Record<string, string> = {
 interface SortableItemProps {
   item: ItineraryItem;
   onReplace: () => void;
+  onSpotClick: (poiId: number) => void;
 }
 
-function SortableTimelineItem({ item, onReplace }: SortableItemProps) {
+function SortableTimelineItem({ item, onReplace, onSpotClick }: SortableItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.spot + item.time });
 
   const style = {
@@ -43,7 +45,7 @@ function SortableTimelineItem({ item, onReplace }: SortableItemProps) {
       <div className="flex-1 pb-4">
         <div>
           <div className="text-xs text-foreground-tertiary font-mono mb-0.5">{item.time}</div>
-          <div className="text-base font-semibold font-display text-foreground mb-1">{item.spot}</div>
+          <div className="text-base font-semibold font-display text-foreground mb-1 hover:text-primary cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); if (item.poi_id) { onSpotClick(item.poi_id); } }}>{item.spot}</div>
           <div className="flex gap-2 items-center text-xs text-foreground-secondary">
             <Tag style={{ fontSize: 10, padding: "1px 6px", borderRadius: 2, color: CATEGORY_COLORS[item.category] || "#8B6F4E", background: `${CATEGORY_COLORS[item.category] || "#8B6F4E"}1f`, border: "none" }}>{item.category}</Tag>
             <span>{item.duration}</span>
@@ -68,6 +70,8 @@ export default function ItineraryTimeline({ itinerary, onEdit }: ItineraryTimeli
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [replaceModalOpen, setReplaceModalOpen] = useState(false);
   const [replacingSpot, setReplacingSpot] = useState<{ dayIdx: number; spot: ItineraryItem } | null>(null);
+  const [poiDetailId, setPoiDetailId] = useState<number | null>(null);
+  const [poiDetailOpen, setPoiDetailOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -145,6 +149,7 @@ export default function ItineraryTimeline({ itinerary, onEdit }: ItineraryTimeli
                         key={item.spot + item.time}
                         item={item}
                         onReplace={() => handleReplaceClick(idx, item)}
+                        onSpotClick={(poiId) => { setPoiDetailId(poiId); setPoiDetailOpen(true); }}
                       />
                     ))}
                   </SortableContext>
@@ -160,7 +165,7 @@ export default function ItineraryTimeline({ itinerary, onEdit }: ItineraryTimeli
                       </div>
                       <div className="flex-1">
                         <div className="text-xs text-foreground-tertiary font-mono mb-0.5">{item.time}</div>
-                        <div className="text-base font-semibold font-display text-foreground mb-1">{item.spot}</div>
+                        <div className="text-base font-semibold font-display text-foreground mb-1 hover:text-primary cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); if (item.poi_id) { onSpotClick(item.poi_id); } }}>{item.spot}</div>
                         <div className="flex gap-2 items-center text-xs text-foreground-secondary">
                           <Tag style={{ fontSize: 10, padding: "1px 6px", borderRadius: 2, color: CATEGORY_COLORS[item.category] || "#8B6F4E", background: `${CATEGORY_COLORS[item.category] || "#8B6F4E"}1f`, border: "none" }}>{item.category}</Tag>
                           <span>{item.duration}</span>
@@ -196,6 +201,12 @@ export default function ItineraryTimeline({ itinerary, onEdit }: ItineraryTimeli
         city={itinerary.destination}
         onClose={() => { setReplaceModalOpen(false); setReplacingSpot(null); }}
         onReplace={handleReplace}
+      />
+
+      <PoiDetailModal
+        poiId={poiDetailId}
+        open={poiDetailOpen}
+        onClose={() => setPoiDetailOpen(false)}
       />
     </div>
   );

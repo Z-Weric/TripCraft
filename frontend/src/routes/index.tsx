@@ -2,9 +2,12 @@ import { lazy, Suspense } from "react";
 import { createBrowserRouter, type RouteObject } from "react-router-dom";
 import ErrorBoundary from "../components/ErrorBoundary";
 
+const Welcome = lazy(() => import("../pages/Welcome"));
 const Home = lazy(() => import("../pages/Home"));
 const History = lazy(() => import("../pages/History"));
 const Detail = lazy(() => import("../pages/Detail"));
+const Login = lazy(() => import("../pages/Login"));
+const Profile = lazy(() => import("../pages/Profile"));
 
 function PageFallback() {
   return (
@@ -25,6 +28,10 @@ function withBoundary(element: React.ReactNode) {
 export const routes: RouteObject[] = [
   {
     path: "/",
+    element: withBoundary(<Welcome />),
+  },
+  {
+    path: "/home",
     element: withBoundary(<Home />),
   },
   {
@@ -34,6 +41,14 @@ export const routes: RouteObject[] = [
   {
     path: "/detail/:token",
     element: withBoundary(<Detail />),
+  },
+  {
+    path: "/login",
+    element: withBoundary(<Login />),
+  },
+  {
+    path: "/profile",
+    element: withBoundary(<Profile />),
   },
 ];
 

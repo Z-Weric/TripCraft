@@ -1,18 +1,35 @@
-"""内存缓存 — TTL 机制，用于 POI 查询和高德验证结果缓存"""
+"""缓存服务 — Redis 优先，内存降级
 
-import time
-from typing import Any, Dict, Optional, Tuple
+用于 POI 查询、景点详情、天气结果、排行榜等数据缓存。
+"""
+
+from typing import Any, Optional
+from utils.redis_client import cache_get, cache_set, cache_delete, cache_delete_pattern, get_redis
 from utils.logger import logger
 
 
 class TTLCache:
-    """简易 TTL 缓存，线程安全由 GIL 保证（单进程足够）"""
+    """内存降级缓存（Redis 不可用时使用）"""
 
     def __init__(self, default_ttl: int = 3600):
-        self._store: Dict[str, Tuple[Any, float]] = {}
+        self._store = {}
         self._default_ttl = default_ttl
+        self._redis_available = False
+        try:
+            r = get_redis()
+            self._redis_available = r is not None
+        except Exception:
+            self._redis_available = False
 
     def get(self, key: str) -> Optional[Any]:
+        # 优先 Redis
+        if self._redis_available:
+            val = cache_get(key)
+            if val is not None:
+                return val
+
+        # 降级内存
+        import time
         if key not in self._store:
             return None
         value, expire_at = self._store[key]
@@ -22,23 +39,24 @@ class TTLCache:
         return value
 
     def set(self, key: str, value: Any, ttl: int = None) -> None:
+        # 优先 Redis
+        if self._redis_available:
+            cache_set(key, value, ttl or self._default_ttl)
+            return
+
+        # 降级内存
+        import time
         expire_at = time.time() + (ttl or self._default_ttl)
         self._store[key] = (value, expire_at)
 
     def clear(self) -> None:
+        if self._redis_available:
+            cache_delete_pattern("*")
         self._store.clear()
-
-    def cleanup_expired(self) -> int:
-        """清理过期条目，返回清理数量"""
-        now = time.time()
-        expired = [k for k, (_, exp) in self._store.items() if now > exp]
-        for k in expired:
-            del self._store[k]
-        return len(expired)
 
 
 # 全局缓存实例
-poi_cache = TTLCache(default_ttl=3600)          # POI 查询缓存 1h
-amap_verify_cache = TTLCache(default_ttl=86400)  # 高德验证缓存 24h
+poi_cache = TTLCache(default_ttl=3600)
+amap_verify_cache = TTLCache(default_ttl=86400)
 
-logger.info("缓存服务初始化完成")
+logger.info(f"缓存服务初始化 (Redis={'启用' if poi_cache._redis_available else '降级内存'})")

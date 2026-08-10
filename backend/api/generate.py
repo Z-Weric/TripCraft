@@ -21,6 +21,7 @@ class GenerateRequest(BaseModel):
     days: int
     budget: int
     preferences: List[str] = []
+    favorite_poi_ids: List[int] = []
 
 
 class GenerateResponse(BaseModel):
@@ -39,8 +40,8 @@ async def generate(req: GenerateRequest, db: Session = Depends(get_db)):
         all_pois = db.query(POI).filter(POI.city == req.destination).all()
         poi_dicts = [
             {
-                "name": p.name, "category": p.category, "lat": p.lat, "lng": p.lng,
-                "cost": p.cost, "duration": p.duration, "note": p.note,
+                "id": p.id, "name": p.name, "category": p.category, "lat": p.lat, "lng": p.lng,
+                "cost": p.cost, "duration": p.duration, "note": p.note, "rating": p.rating,
             }
             for p in all_pois
         ]
@@ -77,6 +78,7 @@ async def generate(req: GenerateRequest, db: Session = Depends(get_db)):
         budget=req.budget,
         preferences=req.preferences,
         pois=selected_pois,
+        favorite_poi_ids=req.favorite_poi_ids,
     )
 
     # 验证（异步）

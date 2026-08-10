@@ -59,15 +59,20 @@ export const useTripStore = create<TripState>((set, get) => ({
             progressStage: "",
             progressMessage: "",
           });
-          // 自动保存到历史记录
-          saveTrip({
-            destination: req.destination,
-            days: req.days,
-            budget: req.budget,
-            preferences: req.preferences,
-            itinerary,
-            verification,
-          }).then((res) => { _currentTripId = res.id; }).catch(() => {/* 保存失败不阻塞用户 */});
+          // 自动保存到历史记录（仅已登录用户）
+          const token = localStorage.getItem("tripcraft-token");
+          if (token) {
+            saveTrip({
+              destination: req.destination,
+              days: req.days,
+              budget: req.budget,
+              preferences: req.preferences,
+              itinerary,
+              verification,
+            }).then((res) => { _currentTripId = res.id; }).catch(() => {/* 保存失败不阻塞用户 */});
+          } else {
+            _currentTripId = 0; // 游客模式
+          }
         },
         onError: (message) => {
           set({

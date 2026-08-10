@@ -54,6 +54,9 @@ body {
   min-height: 100vh;
 }
 
+/* ===== 修复输入框 outline 超出范围 ===== */
+input:focus, textarea:focus { outline: none !important; }
+
 /* ===== 修复 Tailwind preflight 与 Ant Design 冲突 ===== */
 
 /* 恢复 Ant Design 组件需要的默认样式 */

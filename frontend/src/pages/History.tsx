@@ -36,7 +36,7 @@ export default function History() {
     <div className="min-h-screen bg-transparent flex flex-col">
       <header className="sticky top-0 z-50 bg-background-secondary border-b border-border-light shadow-sm">
         <div className="max-w-[888px] mx-auto px-6 h-16 flex items-center justify-between gap-6">
-          <Link to="/" className="text-2xl font-black font-display tracking-tight text-foreground hover:text-primary transition-colors">
+          <Link to="/home" className="text-2xl font-black font-display tracking-tight text-foreground hover:text-primary transition-colors">
             Trip<span className="text-primary font-bold">Craft</span>
           </Link>
           <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] uppercase font-bold tracking-widest border border-primary text-primary rounded-sm">历史行程</span>
@@ -49,7 +49,7 @@ export default function History() {
             <h1 className="text-2xl font-black font-display tracking-tight text-foreground mb-1 uppercase">行程历史</h1>
             <p className="text-sm text-foreground-secondary font-mono">您生成过的所有旅行明信片</p>
           </div>
-          <Link to="/">
+          <Link to="/home">
             <Button icon={<ArrowLeft className="w-4 h-4 inline" />} className="font-mono font-bold border-border hover:border-primary rounded-sm">
               返回生成
             </Button>

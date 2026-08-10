@@ -23,15 +23,17 @@ def haversine(lat1, lng1, lat2, lng2):
 # ===== Mock 生成（降级方案） =====
 
 def _mock_generate(destination: str, days: int, budget: int,
-                    preferences: List[str], pois: List[Dict[str, Any]]) -> Dict[str, Any]:
+                    preferences: List[str], pois: List[Dict[str, Any]],
+                    favorite_poi_ids: List[int] = None) -> Dict[str, Any]:
     """
     智能行程生成算法（v2 重写版）：
     1. 评分优先：按 rating 降序排序，高评分景点优先入选
     2. 偏好加权：匹配偏好的景点加分
-    3. 预算控制：累计花费不超预算
-    4. 贪心就近排布：每天选起点后，每次选最近的下一个景点
-    5. 时段智能分配：上午=自然/历史，中午=美食，下午=购物/休闲
-    6. 交通方式匹配：根据距离选择步行/公交/打车
+    3. 收藏加权：收藏的景点 score +1.0
+    4. 预算控制：累计花费不超预算
+    5. 贪心就近排布：每天选起点后，每次选最近的下一个景点
+    6. 时段智能分配：上午=自然/历史，中午=美食，下午=购物/休闲
+    7. 交通方式匹配：根据距离选择步行/公交/打车
     """
     import itertools
 
@@ -47,12 +49,17 @@ def _mock_generate(destination: str, days: int, budget: int,
     for pref in preferences:
         matched_cats.update(pref_map.get(pref, []))
 
+    fav_set = set(favorite_poi_ids or [])
+
     scored_pois = []
     for poi in pois:
         score = poi.get("rating", 0)
         # 偏好匹配加分
         if poi["category"] in matched_cats:
             score += 2.0
+        # 收藏景点加权
+        if poi.get("id") in fav_set:
+            score += 1.0
         scored_pois.append({**poi, "_score": score})
 
     # 按综合分数降序排序
@@ -167,6 +174,7 @@ def _mock_generate(destination: str, days: int, budget: int,
             items.append({
                 "time": time_slot,
                 "spot": poi["name"],
+                "poi_id": poi.get("id", 0),
                 "category": poi.get("category", "自然风光"),
                 "duration": duration,
                 "cost": cost,
@@ -296,6 +304,15 @@ async def _llm_generate(destination: str, days: int, budget: int,
             return None
 
         logger.info(f"LLM 行程生成成功: {destination} {days}天 ¥{parsed.get('total_cost', '?')}")
+
+        # 后处理：补充 poi_id（LLM 不返回 id，通过名称匹配）
+        poi_name_map = {p["name"]: p for p in pois if "name" in p and "id" in p}
+        for day in parsed.get("itinerary", []):
+            for item in day.get("items", []):
+                spot_name = item.get("spot", "")
+                if spot_name in poi_name_map:
+                    item["poi_id"] = poi_name_map[spot_name]["id"]
+
         return parsed
 
     except json.JSONDecodeError as e:
@@ -309,7 +326,8 @@ async def _llm_generate(destination: str, days: int, budget: int,
 # ===== 对外接口 =====
 
 async def generate_itinerary(destination: str, days: int, budget: int,
-                              preferences: List[str], pois: List[Dict[str, Any]]) -> Dict[str, Any]:
+                              preferences: List[str], pois: List[Dict[str, Any]],
+                              favorite_poi_ids: List[int] = None) -> Dict[str, Any]:
     """
     生成行程 JSON。
     优先使用 LLM，失败时降级到 mock。
@@ -321,4 +339,4 @@ async def generate_itinerary(destination: str, days: int, budget: int,
 
     # 降级到 mock
     logger.info(f"降级到 mock 生成: {destination} {days}天")
-    return _mock_generate(destination, days, budget, preferences, pois)
+    return _mock_generate(destination, days, budget, preferences, pois, favorite_poi_ids or [])

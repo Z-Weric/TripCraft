@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     llm_model: str = "meituan-longcat/LongCat-2.0"
 
     # Database
-    database_url: str = "sqlite:///data/tripcraft.db"
+    database_url: str = "mysql+pymysql://root:zjy123@localhost:3306/tripcraft?charset=utf8mb4"
 
     # LLM
     llm_api_base: str = "https://api.siliconflow.cn/v1/chat/completions"
@@ -26,6 +26,12 @@ class Settings(BaseSettings):
 
     # RAG
     rag_index_path: str = "data/tfidf_index.pkl"
+
+    # Redis
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+    redis_password: str = ""
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).parent / ".env"),

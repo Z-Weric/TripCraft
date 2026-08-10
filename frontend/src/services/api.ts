@@ -4,6 +4,7 @@ import { API_BASE } from "./config";
 export interface ItineraryItem {
   time: string;
   spot: string;
+  poi_id?: number;
   category: string;
   duration: string;
   cost: number;
@@ -49,6 +50,7 @@ export interface GenerateRequest {
   days: number;
   budget: number;
   preferences: string[];
+  favorite_poi_ids?: number[];
 }
 
 export async function generateItinerary(req: GenerateRequest): Promise<GenerateResponse> {
@@ -118,6 +120,8 @@ export interface TripSummary {
   total_cost: number;
   preferences: string;
   created_at: string;
+  user_rating?: number;
+  is_public?: number;
 }
 
 export interface TripDetail extends Omit<TripSummary, "preferences"> {
@@ -133,29 +137,119 @@ export async function saveTrip(payload: {
   preferences: string[];
   itinerary: Itinerary;
   verification?: Verification | null;
-}): Promise<{ status: string; id: number }> {
-  const { data } = await axios.post(`${API_BASE}/api/itineraries`, payload);
+}): Promise<{ status: string; id: number; guest?: boolean }> {
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { data } = await axios.post(`${API_BASE}/api/itineraries`, payload, { headers });
   return data;
 }
 
 export async function listTrips(): Promise<TripSummary[]> {
-  const { data } = await axios.get<TripSummary[]>(`${API_BASE}/api/itineraries`);
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { data } = await axios.get<TripSummary[]>(`${API_BASE}/api/itineraries`, { headers });
   return data;
 }
 
 export async function getTrip(id: number): Promise<TripDetail> {
-  const { data } = await axios.get<TripDetail>(`${API_BASE}/api/itineraries/${id}`);
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { data } = await axios.get<TripDetail>(`${API_BASE}/api/itineraries/${id}`, { headers });
   return data;
 }
 
 export async function deleteTrip(id: number): Promise<{ status: string }> {
-  const { data } = await axios.delete(`${API_BASE}/api/itineraries/${id}`);
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = { Authorization: `Bearer ${token}` };
+  const { data } = await axios.delete(`${API_BASE}/api/itineraries/${id}`, { headers });
   return data;
 }
 
 export async function chatWithPet(message: string, destination?: string): Promise<{ reply: string }> {
   const { data } = await axios.post(`${API_BASE}/api/chat`, { message, destination });
   return data;
+}
+
+// ===== 用户认证 =====
+
+export interface UserInfo {
+  id: number;
+  email: string;
+  username?: string;
+  nickname: string;
+  avatar: string;
+  created_at?: string;
+}
+
+export async function sendCode(email: string): Promise<{ status?: string; error?: string; dev_code?: string }> {
+  const { data } = await axios.post(`${API_BASE}/api/auth/send-code`, { email });
+  return data;
+}
+
+export async function register(payload: { username: string; email: string; password: string; code: string }): Promise<{ status?: string; token?: string; user?: UserInfo; error?: string }> {
+  const { data } = await axios.post(`${API_BASE}/api/auth/register`, payload);
+  return data;
+}
+
+export async function login(payload: { account: string; password: string }): Promise<{ status?: string; token?: string; user?: UserInfo; error?: string }> {
+  const { data } = await axios.post(`${API_BASE}/api/auth/login`, payload);
+  return data;
+}
+
+export async function getMe(): Promise<UserInfo & { error?: string }> {
+  const token = localStorage.getItem("tripcraft-token");
+  const { data } = await axios.get(`${API_BASE}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export async function updateProfile(payload: { nickname?: string; avatar?: string }): Promise<{ status?: string; error?: string }> {
+  const token = localStorage.getItem("tripcraft-token");
+  const { data } = await axios.put(`${API_BASE}/api/auth/profile`, payload, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return data;
+}
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem("tripcraft-token");
+}
+
+// ===== 景点详情 + 收藏 =====
+
+export async function getPoiDetail(poiId: number): Promise<any> {
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { data } = await axios.get(`${API_BASE}/api/pois/${poiId}/detail`, { headers });
+  return data;
+}
+
+export async function toggleFavorite(poiId: number, favorited: boolean): Promise<{ favorited: boolean }> {
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = { Authorization: `Bearer ${token}` };
+  if (favorited) {
+    await axios.delete(`${API_BASE}/api/pois/${poiId}/favorite`, { headers });
+    return { favorited: false };
+  } else {
+    await axios.post(`${API_BASE}/api/pois/${poiId}/favorite`, {}, { headers });
+    return { favorited: true };
+  }
+}
+
+export async function submitReview(poiId: number, rating: number, comment: string): Promise<{ status: string }> {
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = { Authorization: `Bearer ${token}` };
+  const { data } = await axios.post(`${API_BASE}/api/pois/${poiId}/review`, { rating, comment }, { headers });
+  return data;
+}
+
+export function isLoggedIn(): boolean {
+  return !!localStorage.getItem("tripcraft-token");
+}
+
+export function logout() {
+  localStorage.removeItem("tripcraft-token");
 }
 
 // ===== 行程分享 =====

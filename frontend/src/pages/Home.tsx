@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Alert, Tag, Button } from "antd";
 import { CheckCircle2, XCircle, Sparkles, Clock, MapPin, Brain, ShieldCheck, Share2, Moon, Sun } from "lucide-react";
 import SearchBar from "../components/SearchBar";
@@ -13,6 +13,7 @@ import WeatherCard from "../components/WeatherCard";
 import PackingList from "../components/PackingList";
 import { useTripStore, getCurrentTripId } from "../stores/itineraryStore";
 import { useTheme } from "../hooks/useTheme";
+import { useUserStore } from "../stores/userStore";
 
 const STAGES = [
   { key: "rag_retrieval", label: "景点检索", icon: MapPin },
@@ -24,6 +25,10 @@ export default function Home() {
   const { loading, itinerary, verification, error, lastRequest, generate, regenerate, progressStage, progressMessage, editDayItems } = useTripStore();
   const [shareOpen, setShareOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
+  const { isLoggedIn, user, fetchMe, logout } = useUserStore();
+  const navigate = useNavigate();
+
+  useEffect(() => { fetchMe(); }, []);
 
   return (
     <div className="min-h-screen bg-transparent flex flex-col">
@@ -33,12 +38,29 @@ export default function Home() {
           <span className="text-2xl font-black font-display tracking-tight text-foreground">Trip<span className="text-primary font-bold">Craft</span></span>
           <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] uppercase font-bold tracking-widest border border-primary text-primary rounded-sm">Postcard v2.0</span>
           {itinerary && <span className="text-sm text-foreground-tertiary">{itinerary.days}天{itinerary.destination} · 预算 ¥{lastRequest?.budget}</span>}
-          <Link to="/history" className="flex items-center gap-1 text-xs text-foreground-tertiary hover:text-primary transition-colors font-mono">
-            <Clock className="w-3.5 h-3.5" />历史
-          </Link>
-          <button onClick={toggleTheme} className="flex items-center gap-1 text-xs text-foreground-tertiary hover:text-primary transition-colors font-mono p-1" aria-label="切换主题">
-            {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-          </button>
+          <div className="flex items-center gap-3">
+            <Link to="/history" className="flex items-center gap-1 text-xs text-foreground-tertiary hover:text-primary transition-colors font-mono">
+              <Clock className="w-3.5 h-3.5" />历史
+            </Link>
+            <button onClick={toggleTheme} className="text-xs text-foreground-tertiary hover:text-primary transition-colors font-mono p-1" aria-label="切换主题">
+              {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+            {isLoggedIn && user ? (
+              <div className="flex items-center gap-2">
+                <Link to="/profile" className="flex items-center gap-1.5 text-xs font-mono text-foreground hover:text-primary transition-colors">
+                  <span className="w-6 h-6 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
+                    {user.nickname?.[0]?.toUpperCase() || "U"}
+                  </span>
+                  <span className="hidden sm:inline">{user.nickname}</span>
+                </Link>
+                <button onClick={() => { logout(); navigate("/"); }} className="text-[10px] text-foreground-tertiary hover:text-error font-mono">退出</button>
+              </div>
+            ) : (
+              <Link to="/login" className="text-xs font-mono font-bold text-primary border border-primary px-3 py-1 rounded-sm hover:bg-primary hover:text-white transition-all">
+                登录
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 

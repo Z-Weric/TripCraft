@@ -8,6 +8,7 @@ from config import settings
 from database.models import init_db, SessionLocal, POI
 from api import generate, verify, feedback, pois, chat
 from api import generate_stream, itineraries, share, weather, packing
+from api import auth, pois_detail, user
 from api.errors import TripCraftError, trip_error_handler
 from services.rag_service import build_index_from_pois, is_index_ready
 from utils.logger import logger
@@ -26,7 +27,7 @@ async def lifespan(app: FastAPI):
         all_pois = db.query(POI).all()
         poi_list = [
             {
-                "city": p.city, "name": p.name, "category": p.category,
+                "id": p.id, "city": p.city, "name": p.name, "category": p.category,
                 "lat": p.lat, "lng": p.lng, "address": p.address,
                 "cost": p.cost, "duration": p.duration, "note": p.note,
                 "rating": p.rating,
@@ -66,6 +67,9 @@ app.include_router(itineraries.router)
 app.include_router(share.router)
 app.include_router(weather.router)
 app.include_router(packing.router)
+app.include_router(auth.router)
+app.include_router(pois_detail.router)
+app.include_router(user.router)
 
 # 注册异常处理
 app.add_exception_handler(TripCraftError, trip_error_handler)
