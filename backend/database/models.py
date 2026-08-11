@@ -165,6 +165,46 @@ class PreferenceTemplate(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class Post(Base):
+    """社区帖子"""
+    __tablename__ = "posts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    cover_image = Column(String(255), default="")
+    city = Column(String(50), default="", index=True)
+    tags = Column(String(255), default="")
+    trip_id = Column(Integer, nullable=True)
+    trip_json = Column(Text)
+    view_count = Column(Integer, default=0)
+    like_count = Column(Integer, default=0)
+    comment_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PostComment(Base):
+    """帖子评论"""
+    __tablename__ = "post_comments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    post_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PostLike(Base):
+    """帖子点赞"""
+    __tablename__ = "post_likes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    post_id = Column(Integer, nullable=False)
+
+
 def init_db():
     """初始化数据库 + 写入种子景点数据"""
     Base.metadata.create_all(engine)
