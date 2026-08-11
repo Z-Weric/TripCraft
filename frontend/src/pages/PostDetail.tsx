@@ -7,8 +7,8 @@ import PostcardFlipCard from "../components/PostcardFlipCard";
 import { getPost, getComments, createComment, likePost, unlikePost, isLoggedIn, type PostDetail as PostDetailType, type Itinerary } from "../services/api";
 
 interface Comment {
-  id: number; content: string; created_at: string;
-  author: { id: number; nickname: string };
+  id: string; content: string; created_at: string;
+  user_nickname: string;
 }
 
 export default function PostDetail() {
@@ -162,9 +162,9 @@ export default function PostDetail() {
               <div key={c.id} className="p-3 bg-background-tertiary rounded-sm">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="w-6 h-6 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
-                    {c.author.nickname?.[0]?.toUpperCase() || "U"}
+                    {c.user_nickname?.[0]?.toUpperCase() || "U"}
                   </span>
-                  <span className="text-xs font-bold text-foreground">{c.author.nickname}</span>
+                  <span className="text-xs font-bold text-foreground">{c.user_nickname}</span>
                   <span className="text-[10px] text-foreground-tertiary font-mono ml-auto">{c.created_at}</span>
                 </div>
                 <p className="text-xs text-foreground-secondary pl-8">{c.content}</p>

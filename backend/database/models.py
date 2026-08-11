@@ -172,7 +172,7 @@ class Post(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
     title = Column(String(200), nullable=False)
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=True)  # 正文存 MongoDB
     cover_image = Column(String(255), default="")
     city = Column(String(50), default="", index=True)
     tags = Column(String(255), default="")

@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: str = ""
 
+    # MongoDB
+    mongo_url: str = "mongodb://localhost:27017"
+    mongo_db: str = "tripcraft"
+
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).parent / ".env"),
         env_file_encoding="utf-8",

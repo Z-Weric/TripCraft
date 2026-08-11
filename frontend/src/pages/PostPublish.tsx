@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { message, Spin } from "antd";
 import { ArrowLeft, Send } from "lucide-react";
-import { createPost } from "../services/api";
+import { createPost, isLoggedIn } from "../services/api";
 
 export default function PostPublish() {
   const navigate = useNavigate();
@@ -32,6 +32,7 @@ export default function PostPublish() {
   const handlePublish = async () => {
     if (!title.trim()) { message.warning("请输入标题"); return; }
     if (!content.trim()) { message.warning("内容不能为空"); return; }
+    if (!isLoggedIn()) { message.warning("请先登录后发布"); navigate("/login"); return; }
 
     setLoading(true);
     try {
@@ -46,14 +47,18 @@ export default function PostPublish() {
         message.error(res.error);
       } else {
         message.success("发布成功！");
-        // 清理 sessionStorage
         sessionStorage.removeItem("article-content");
         sessionStorage.removeItem("article-title");
         sessionStorage.removeItem("article-itinerary");
         navigate(`/post/${res.id}`);
       }
-    } catch {
-      message.error("发布失败");
+    } catch (e: any) {
+      if (e?.response?.status === 401) {
+        message.error("登录已过期，请重新登录");
+        navigate("/login");
+      } else {
+        message.error("发布失败");
+      }
     } finally {
       setLoading(false);
     }
