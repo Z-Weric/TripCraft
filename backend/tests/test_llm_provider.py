@@ -10,10 +10,20 @@ from services.llm_provider import (
     OpenAICompatibleProvider,
     ProviderUnavailableError,
 )
-from services.llm_service import build_provider, get_default_provider
+from services.llm_service import build_provider, chat_completion, get_default_provider
 
 
 class LLMProviderTest(unittest.IsolatedAsyncioTestCase):
+    async def test_non_streaming_compatibility_helper_collects_stream(self):
+        async def chunks(*args, **kwargs):
+            yield "Trip"
+            yield "Craft"
+
+        with patch("services.llm_service.chat_completion_stream", chunks):
+            result = await chat_completion([{"role": "user", "content": "hello"}])
+
+        self.assertEqual(result, "TripCraft")
+
     async def test_ollama_health_and_json_generation(self):
         requests = []
 

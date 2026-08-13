@@ -71,6 +71,19 @@ async def chat_completion_stream(
         yield chunk
 
 
+async def chat_completion(
+    messages: list[dict[str, str]],
+    temperature: float = 0.7,
+    max_tokens: int = 800,
+) -> str:
+    """Collect a provider stream for callers that require one complete response."""
+    chunks = [
+        chunk
+        async for chunk in chat_completion_stream(messages, temperature, max_tokens)
+    ]
+    return "".join(chunks)
+
+
 async def chat_with_context_stream(
     system_prompt: str,
     user_message: str,
