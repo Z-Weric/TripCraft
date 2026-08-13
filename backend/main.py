@@ -1,7 +1,7 @@
 """TripCraft 后端入口 — FastAPI (v2 异步版)"""
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
@@ -12,13 +12,15 @@ from api import auth, pois_detail, user
 from api import article, community, foods
 from api.errors import TripCraftError, trip_error_handler
 from services.rag_service import build_index_from_pois, is_index_ready
-from utils.logger import logger
+from utils.logger import get_request_id, logger, reset_request_id, set_request_id
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动
     logger.info("TripCraft 启动中...")
+    if settings.jwt_secret == "change-me-in-production" or len(settings.jwt_secret) < 32:
+        logger.warning("JWT_SECRET 未配置为至少 32 字符的随机密钥；仅适用于本地开发")
     init_db()
     logger.info("数据库初始化完成")
 
@@ -47,6 +49,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="TripCraft API", version="2.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or None
+    token = set_request_id(request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = get_request_id()
+        return response
+    finally:
+        reset_request_id(token)
 
 # CORS
 app.add_middleware(

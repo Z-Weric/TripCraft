@@ -30,19 +30,40 @@ export interface Itinerary {
 }
 
 export interface Verification {
+  overall_valid?: boolean;
+  structure_valid?: boolean;
   spots_valid: boolean;
   spots_total?: number;
   spots_verified?: number;
+  verification_source?: "external" | "local" | "mixed" | "unavailable";
+  spot_results?: Array<{ spot: string; valid: boolean; source: "external" | "local" | "unavailable" | "failed" }>;
   budget_valid: boolean;
   budget_total?: number;
   budget_limit?: number;
   budget_utilization?: number;
+  calculation_valid?: boolean;
+  calculated_total?: number;
   route_valid: boolean;
+  errors?: Array<{ code: string; message: string; path?: string }>;
 }
 
 export interface GenerateResponse {
   itinerary: Itinerary;
   verification: Verification;
+  generation_source: GenerationSource;
+  validation_status: ValidationStatus;
+  fallback_reason?: string | null;
+  model_version: string;
+}
+
+export type GenerationSource = "llm" | "llm_repaired" | "planner";
+export type ValidationStatus = "valid" | "repaired" | "fallback";
+
+export interface GenerationMetadata {
+  generation_source: GenerationSource;
+  validation_status: ValidationStatus;
+  fallback_reason?: string | null;
+  model_version: string;
 }
 
 export interface GenerateRequest {
@@ -60,7 +81,7 @@ export async function generateItinerary(req: GenerateRequest): Promise<GenerateR
 
 export interface StreamCallbacks {
   onProgress?: (stage: string, message: string) => void;
-  onDone: (itinerary: Itinerary, verification: Verification) => void;
+  onDone: (itinerary: Itinerary, verification: Verification, metadata: GenerationMetadata) => void;
   onError: (message: string) => void;
 }
 
@@ -70,6 +91,20 @@ export async function generateItineraryStream(req: GenerateRequest, callbacks: S
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
+
+  if (!resp.ok) {
+    let message = `请求失败（HTTP ${resp.status}）`;
+    try {
+      const error = await resp.json();
+      if (Array.isArray(error.detail)) {
+        message = error.detail.map((item: { msg?: string }) => item.msg).filter(Boolean).join("；") || message;
+      } else if (typeof error.detail === "string") {
+        message = error.detail;
+      }
+    } catch { /* keep the HTTP status fallback */ }
+    callbacks.onError(message);
+    return;
+  }
 
   const reader = resp.body?.getReader();
   if (!reader) { callbacks.onError("流式连接失败"); return; }
@@ -90,7 +125,12 @@ export async function generateItineraryStream(req: GenerateRequest, callbacks: S
       try {
         const data = JSON.parse(line.slice(6));
         if (data.type === "progress") callbacks.onProgress?.(data.stage, data.message);
-        else if (data.type === "done") callbacks.onDone(data.itinerary, data.verification);
+        else if (data.type === "done") callbacks.onDone(data.itinerary, data.verification, {
+          generation_source: data.generation_source,
+          validation_status: data.validation_status,
+          fallback_reason: data.fallback_reason,
+          model_version: data.model_version,
+        });
         else if (data.type === "error") callbacks.onError(data.message);
       } catch { /* skip */ }
     }
@@ -128,6 +168,13 @@ export interface TripDetail extends Omit<TripSummary, "preferences"> {
   preferences: string[];
   itinerary: Itinerary;
   verification: Verification | null;
+  model_version?: string;
+  planner_version?: string;
+  poi_version?: string | null;
+  generation_source?: GenerationSource;
+  validation_status?: ValidationStatus;
+  fallback_reason?: string | null;
+  version?: number;
 }
 
 export async function saveTrip(payload: {
@@ -137,6 +184,10 @@ export async function saveTrip(payload: {
   preferences: string[];
   itinerary: Itinerary;
   verification?: Verification | null;
+  generation_source?: GenerationSource;
+  validation_status?: ValidationStatus;
+  fallback_reason?: string | null;
+  model_version?: string;
 }): Promise<{ status: string; id: number; guest?: boolean }> {
   const token = localStorage.getItem("tripcraft-token");
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -354,8 +405,10 @@ export async function createComment(postId: number, content: string): Promise<{ 
 
 // ===== 行程分享 =====
 
-export async function createShareLink(tripId: number): Promise<{ url: string; token: string }> {
-  const { data } = await axios.post(`${API_BASE}/api/share/${tripId}`);
+export async function createShareLink(tripId: number): Promise<{ url: string; token: string; expires_at: string }> {
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { data } = await axios.post(`${API_BASE}/api/share/${tripId}`, {}, { headers });
   return data;
 }
 
@@ -365,7 +418,9 @@ export async function getSharedTrip(token: string): Promise<TripDetail> {
 }
 
 export async function exportTrip(tripId: number, format: "json" | "markdown" = "json"): Promise<{ format: string; content: string }> {
-  const { data } = await axios.get(`${API_BASE}/api/export/${tripId}`, { params: { format } });
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { data } = await axios.get(`${API_BASE}/api/export/${tripId}`, { params: { format }, headers });
   return data;
 }
 
@@ -444,4 +499,11 @@ export async function chatWithPetStream(
     }
   }
   onDone();
+}
+
+export async function updateTrip(id: number, itinerary: Itinerary): Promise<{ status: string; version: number; changed: boolean; action_types?: string[] }> {
+  const token = localStorage.getItem("tripcraft-token");
+  const headers = { Authorization: `Bearer ${token}` };
+  const { data } = await axios.put(`${API_BASE}/api/itineraries/${id}`, { itinerary }, { headers });
+  return data;
 }

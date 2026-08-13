@@ -23,9 +23,22 @@ const TABS = [
   { key: "community", label: "旅游社区", icon: Users },
 ];
 
+const VERIFICATION_SOURCE_LABELS = {
+  external: "高德",
+  local: "本地库",
+  mixed: "混合",
+  unavailable: "未验证",
+} as const;
+
+const GENERATION_SOURCE_LABELS = {
+  llm: "模型生成",
+  llm_repaired: "模型修复后生成",
+  planner: "确定性规划",
+} as const;
+
 export default function Home() {
   const navigate = useNavigate();
-  const { loading, itinerary, verification, error, lastRequest, generate, regenerate, progressStage, progressMessage, editDayItems } = useTripStore();
+  const { loading, itinerary, verification, generationMetadata, error, lastRequest, generate, regenerate, progressStage, progressMessage, editDayItems } = useTripStore();
   const { theme, toggle: toggleTheme } = useTheme();
   const { isLoggedIn, user, fetchMe, logout } = useUserStore();
   const [shareOpen, setShareOpen] = useState(false);
@@ -140,7 +153,14 @@ export default function Home() {
                   {verification && (
                     <div className="flex flex-wrap gap-3 items-center justify-center p-3 bg-background-tertiary border border-border-light rounded-sm animate-fade-in-up" style={{ animationDelay: "0ms" }}>
                       <span className="text-xs text-foreground-tertiary font-mono uppercase tracking-wider mr-2">系统验证:</span>
-                      <Tag icon={verification.spots_valid ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />} color={verification.spots_valid ? "success" : "error"} className="text-xs py-1 px-2.5">景点真实性 ({verification.spots_verified}/{verification.spots_total})</Tag>
+                      {generationMetadata && (
+                        <Tag color={generationMetadata.generation_source === "planner" ? "warning" : "processing"} className="text-xs py-1 px-2.5" title={generationMetadata.fallback_reason || undefined}>
+                          {GENERATION_SOURCE_LABELS[generationMetadata.generation_source]}
+                        </Tag>
+                      )}
+                      <Tag icon={verification.spots_valid ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />} color={verification.spots_valid ? "success" : "error"} className="text-xs py-1 px-2.5">
+                        景点真实性 ({verification.spots_verified}/{verification.spots_total}) · {VERIFICATION_SOURCE_LABELS[verification.verification_source || "unavailable"]}
+                      </Tag>
                       <Tag icon={verification.budget_valid ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />} color={verification.budget_valid ? "success" : "error"} className="text-xs py-1 px-2.5">预算 {verification.budget_valid ? "合规" : "超支"}</Tag>
                       <Tag icon={verification.route_valid ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />} color={verification.route_valid ? "success" : "error"} className="text-xs py-1 px-2.5">路线 {verification.route_valid ? "合理" : "需调优"}</Tag>
                     </div>

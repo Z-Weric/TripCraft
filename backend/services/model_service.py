@@ -1,342 +1,206 @@
-"""模型服务 — LLM 行程生成 + Mock 降级 (v2)
+"""Orchestrate deterministic planning and allow-listed LLM narrative."""
 
-优先使用 LLM 生成结构化行程 JSON，失败时降级到 mock 算法。
-"""
-
-import math
-import random
+from dataclasses import dataclass
 import json
-from typing import List, Dict, Any, Optional
+import time
+from typing import Any
+
+from schemas.itinerary import ItineraryGenerationOutcome, ItineraryNarrative
+from schemas.planning import PlanningRequest
+from services.fact_pack_service import build_fact_pack
+from services.planner_service import plan_itinerary
+from services.response_validation_service import merge_narrative, validate_narrative
+from services.llm_provider import ProviderResponseError, ProviderUnavailableError
 from utils.logger import logger
-from config import settings
 
 
-def haversine(lat1, lng1, lat2, lng2):
-    """计算两点间距离（km）"""
-    R = 6371
-    dlat = math.radians(lat2 - lat1)
-    dlng = math.radians(lng2 - lng1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+@dataclass(frozen=True)
+class ModelCallResult:
+    payload: Any | None
+    error: str | None = None
+    available: bool = True
+    model_id: str = "none"
 
 
-# ===== Mock 生成（降级方案） =====
+def _build_prompt(
+    fact_pack: dict[str, Any],
+    repair_errors: list[str] | None = None,
+    previous_payload: Any | None = None,
+) -> str:
+    repair_section = ""
+    if repair_errors:
+        repair_section = f"""
+上一次输出未通过校验，请只修复格式和引用错误，不得改变事实包：
+{repair_errors}
+上一次输出：
+{previous_payload}
+"""
+    return f"""你是 TripCraft 行程文案生成器。事实包已由系统规划器确定。
 
-def _mock_generate(destination: str, days: int, budget: int,
-                    preferences: List[str], pois: List[Dict[str, Any]],
-                    favorite_poi_ids: List[int] = None) -> Dict[str, Any]:
-    """
-    智能行程生成算法（v2 重写版）：
-    1. 评分优先：按 rating 降序排序，高评分景点优先入选
-    2. 偏好加权：匹配偏好的景点加分
-    3. 收藏加权：收藏的景点 score +1.0
-    4. 预算控制：累计花费不超预算
-    5. 贪心就近排布：每天选起点后，每次选最近的下一个景点
-    6. 时段智能分配：上午=自然/历史，中午=美食，下午=购物/休闲
-    7. 交通方式匹配：根据距离选择步行/公交/打车
-    """
-    import itertools
+你只能填写 summary、transport_advice、note、reason，并原样引用 day 与 poi_id。
+禁止输出景点名称、坐标、费用、时长、排序或任何 Schema 外字段。
 
-    # ===== 1. 景点评分排序 + 偏好加权 =====
-    pref_map = {
-        "自然风光": ["自然风光"],
-        "美食": ["美食"],
-        "历史文化": ["历史文化"],
-        "亲子": ["自然风光", "历史文化"],
-        "购物": ["购物"],
-    }
-    matched_cats = set()
-    for pref in preferences:
-        matched_cats.update(pref_map.get(pref, []))
-
-    fav_set = set(favorite_poi_ids or [])
-
-    scored_pois = []
-    for poi in pois:
-        score = poi.get("rating", 0)
-        # 偏好匹配加分
-        if poi["category"] in matched_cats:
-            score += 2.0
-        # 收藏景点加权
-        if poi.get("id") in fav_set:
-            score += 1.0
-        scored_pois.append({**poi, "_score": score})
-
-    # 按综合分数降序排序
-    scored_pois.sort(key=lambda x: x["_score"], reverse=True)
-
-    # 按预算约束选取景点池（保留足够多的候选）
-    target_count = days * 3
-    selected = scored_pois[:max(target_count, min(len(scored_pois), target_count * 2))]
-
-    # 如果不够，补充剩余景点
-    if len(selected) < target_count:
-        remaining = [p for p in scored_pois if p not in selected]
-        selected.extend(remaining)
-    selected = selected[:max(target_count, len(selected))]
-
-    # ===== 2. 贪心就近排布 — 每天选景点 + 路线优化 =====
-    # 按类别分组，方便时段分配
-    by_category = {"自然风光": [], "美食": [], "历史文化": [], "购物": [], "亲子": []}
-    for poi in selected:
-        cat = poi.get("category", "自然风光")
-        if cat not in by_category:
-            by_category[cat] = []
-        by_category[cat].append(poi)
-
-    # 时段-类别偏好映射
-    time_slots = [
-        ("09:00-12:00", "上午", ["自然风光", "历史文化"]),  # 上午安排自然/历史
-        ("12:00-13:30", "中午", ["美食"]),                  # 中午安排美食
-        ("14:00-16:00", "下午", ["购物", "自然风光", "历史文化"]),  # 下午灵活
-    ]
-
-    itinerary = []
-    total_cost = 0
-    used_names = set()  # 避免重复安排同一景点
-
-    for day_idx in range(days):
-        items = []
-        day_cost = 0
-        prev_lat, prev_lng = None, None
-
-        for slot_idx, (time_slot, period, preferred_cats) in enumerate(time_slots):
-            # 从偏好类别中选一个未用过的景点
-            candidates = []
-            for cat in preferred_cats:
-                for poi in by_category.get(cat, []):
-                    if poi["name"] not in used_names:
-                        # 如果有上一个景点，计算距离优先选近的
-                        if prev_lat is not None:
-                            dist = haversine(prev_lat, prev_lng, poi["lat"], poi["lng"])
-                        else:
-                            dist = 0
-                        candidates.append((poi, dist))
-
-            if not candidates:
-                # 从全部未用景点中选
-                for poi in selected:
-                    if poi["name"] not in used_names:
-                        if prev_lat is not None:
-                            dist = haversine(prev_lat, prev_lng, poi["lat"], poi["lng"])
-                        else:
-                            dist = 0
-                        candidates.append((poi, dist))
-
-            if not candidates:
-                continue
-
-            # 贪心：选距离最近的（如果没有 prev 就选评分最高的）
-            if prev_lat is not None:
-                candidates.sort(key=lambda x: x[1])  # 按距离升序
-            else:
-                candidates.sort(key=lambda x: x[0].get("_score", 0), reverse=True)  # 按评分降序
-
-            poi = candidates[0][0]
-            used_names.add(poi["name"])
-            cost = poi.get("cost", 0)
-
-            # 累计花费检查
-            if total_cost + cost > budget and cost > 0:
-                # 预算快超了，找免费景点替代
-                free_candidate = next((c[0] for c in candidates if c[0].get("cost", 0) == 0), None)
-                if free_candidate:
-                    poi = free_candidate
-                    used_names.add(poi["name"])
-                    cost = 0
-
-            # 计算交通距离和方式
-            if prev_lat is not None:
-                dist_km = haversine(prev_lat, prev_lng, poi["lat"], poi["lng"])
-            else:
-                dist_km = 0
-
-            # 根据距离选择交通方式
-            if dist_km == 0:
-                transport = "步行出发"
-                transport_cost = 0
-            elif dist_km < 3:
-                transport = f"步行约{dist_km:.1f}km"
-                transport_cost = 0
-            elif dist_km < 15:
-                transport = f"公交/地铁约{dist_km:.1f}km，约10元"
-                transport_cost = 10
-            elif dist_km < 40:
-                transport = f"打车约{dist_km:.1f}km，约40元"
-                transport_cost = 40
-            else:
-                transport = f"自驾/大巴约{dist_km:.0f}km，约80元"
-                transport_cost = 80
-
-            # 使用景点自身的 duration，没有则用默认
-            duration = poi.get("duration", time_slots[slot_idx][0].split("-")[0] + "h")
-
-            items.append({
-                "time": time_slot,
-                "spot": poi["name"],
-                "poi_id": poi.get("id", 0),
-                "category": poi.get("category", "自然风光"),
-                "duration": duration,
-                "cost": cost,
-                "lat": poi["lat"],
-                "lng": poi["lng"],
-                "note": poi.get("note", ""),
-                "transport_from_prev": transport,
-            })
-            day_cost += cost
-            day_cost += transport_cost if slot_idx > 0 else 0
-            prev_lat, prev_lng = poi["lat"], poi["lng"]
-
-        total_cost += day_cost
-
-        # 当日交通总结
-        if items:
-            day_transport = " → ".join([items[0]["spot"]] + [it["spot"] for it in items[1:]])
-            day_transport_str = f"路线: {day_transport}"
-        else:
-            day_transport_str = "暂无安排"
-
-        itinerary.append({
-            "day": day_idx + 1,
-            "items": items,
-            "transport": day_transport_str,
-            "day_cost": day_cost,
-        })
-
-    pref_str = "、".join(preferences) if preferences else "综合"
-    summary = f"{days}天{destination}{pref_str}之旅"
-
-    return {
-        "destination": destination,
-        "days": days,
-        "itinerary": itinerary,
-        "total_cost": total_cost,
-        "summary": summary,
-    }
+事实包：
+{fact_pack}
+{repair_section}
+只返回 JSON，不要使用 Markdown 代码块。"""
 
 
-# ===== LLM 生成（主方案） =====
+async def _llm_generate(
+    fact_pack: dict[str, Any],
+    repair_errors: list[str] | None = None,
+    previous_payload: Any | None = None,
+) -> ModelCallResult:
+    from services.model_router import route_model_request
 
-ITINERARY_SCHEMA = {
-    "destination": "string",
-    "days": "number",
-    "itinerary": [
-        {
-            "day": "number (从1开始)",
-            "items": [
-                {
-                    "time": "string (如 09:00-12:00)",
-                    "spot": "string (景点名，必须来自提供的景点列表)",
-                    "category": "string",
-                    "duration": "string (如 2h)",
-                    "cost": "number (门票费用)",
-                    "lat": "number (纬度)",
-                    "lng": "number (经度)",
-                    "note": "string (简短备注)"
-                }
-            ],
-            "transport": "string (当日交通建议)",
-            "day_cost": "number (当日总花费)"
-        }
-    ],
-    "total_cost": "number (总花费)",
-    "summary": "string (一句话总结)"
-}
-
-
-def _build_llm_prompt(destination: str, days: int, budget: int,
-                      preferences: List[str], pois: List[Dict[str, Any]]) -> str:
-    """构建 LLM system prompt"""
-    pref_str = "、".join(preferences) if preferences else "综合体验"
-    pois_json = json.dumps(pois, ensure_ascii=False, indent=2)
-
-    return f"""你是旅行规划专家。请根据以下景点数据，为用户生成一份 {days} 天的{destination}行程。
-
-要求：
-1. 总花费不超过 {budget} 元
-2. 每天 3-4 个景点，时间安排合理（上午、中午、下午）
-3. 路线就近排布，减少不必要的交通绕路
-4. 偏好主题：{pref_str}
-5. 景点名必须来自下方提供的景点列表
-6. lat/lng/cost/category 必须与景点列表中的数据一致
-
-可选景点数据：
-{pois_json}
-
-请严格返回以下 JSON 格式（不要包含 markdown 代码块标记，直接返回纯 JSON）：
-{json.dumps(ITINERARY_SCHEMA, ensure_ascii=False, indent=2)}"""
-
-
-async def _llm_generate(destination: str, days: int, budget: int,
-                         preferences: List[str], pois: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """调用 LLM 生成行程，返回 dict 或 None（失败时）"""
-    from services.llm_service import has_api_key, chat_completion
-
-    if not has_api_key():
-        logger.info("LLM API Key 未配置，使用 mock 生成")
-        return None
-
-    system_prompt = _build_llm_prompt(destination, days, budget, preferences, pois)
-
-    try:
-        result = await chat_completion(
-            messages=[{"role": "system", "content": system_prompt}],
-            temperature=0.3,
-            max_tokens=2000,
+    route = route_model_request(
+        "itinerary",
+        destination=str(fact_pack.get("destination", "")),
+        days=int(fact_pack.get("days", 0)),
+        preferences=fact_pack.get("preferences", []),
+        repair_errors=repair_errors,
+    )
+    providers = [route.primary]
+    if route.fallback_allowed:
+        providers.append(route.fallback)
+    if not any(provider.available for provider in providers):
+        return ModelCallResult(
+            payload=None,
+            error="LLM Provider 未配置",
+            available=False,
         )
 
-        # 清理可能的 markdown 代码块标记
-        result = result.strip()
-        if result.startswith("```"):
-            result = result.split("\n", 1)[1] if "\n" in result else result[3:]
-        if result.endswith("```"):
-            result = result[:-3]
-        result = result.strip()
+    errors: list[str] = []
+    for index, provider in enumerate(providers):
+        if not provider.available:
+            continue
+        started = time.perf_counter()
+        fallback_reason = "primary_unavailable" if index else None
+        try:
+            payload = await provider.generate_json(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": _build_prompt(fact_pack, repair_errors, previous_payload),
+                    }
+                ],
+                schema=ItineraryNarrative.model_json_schema(),
+                temperature=0.2,
+                max_tokens=2000,
+            )
+            logger.info(
+                "模型文案生成完成",
+                extra={
+                    "provider": provider.model_id.split(":", 1)[0],
+                    "model": provider.model_id,
+                    "latency": round((time.perf_counter() - started) * 1000),
+                    "tokens": max(1, len(json.dumps(payload, ensure_ascii=False)) // 4),
+                    "route_reason": route.reason,
+                    "fallback_reason": fallback_reason,
+                    "cost": 0 if provider.model_id.startswith("ollama:") else None,
+                },
+            )
+            return ModelCallResult(payload=payload, model_id=provider.model_id)
+        except ProviderUnavailableError as exc:
+            errors.append(str(exc))
+            logger.warning(
+                "模型 Provider 不可用",
+                extra={
+                    "provider": provider.model_id.split(":", 1)[0],
+                    "model": provider.model_id,
+                    "latency": round((time.perf_counter() - started) * 1000),
+                    "route_reason": route.reason,
+                    "fallback_reason": str(exc),
+                },
+            )
+        except ProviderResponseError as exc:
+            logger.warning("模型文案响应不合法: %s", exc)
+            return ModelCallResult(payload=None, error=str(exc))
+    return ModelCallResult(payload=None, error="；".join(errors), available=False)
 
-        parsed = json.loads(result)
 
-        # 基本校验
-        if not all(k in parsed for k in ["destination", "days", "itinerary", "total_cost"]):
-            logger.warning("LLM 输出缺少必要字段")
-            return None
-        if len(parsed["itinerary"]) != days:
-            logger.warning(f"LLM 输出天数不匹配: 期望 {days}, 实际 {len(parsed['itinerary'])}")
-            return None
-
-        logger.info(f"LLM 行程生成成功: {destination} {days}天 ¥{parsed.get('total_cost', '?')}")
-
-        # 后处理：补充 poi_id（LLM 不返回 id，通过名称匹配）
-        poi_name_map = {p["name"]: p for p in pois if "name" in p and "id" in p}
-        for day in parsed.get("itinerary", []):
-            for item in day.get("items", []):
-                spot_name = item.get("spot", "")
-                if spot_name in poi_name_map:
-                    item["poi_id"] = poi_name_map[spot_name]["id"]
-
-        return parsed
-
-    except json.JSONDecodeError as e:
-        logger.error(f"LLM 输出 JSON 解析失败: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"LLM 行程生成异常: {e}")
-        return None
+def _with_planning_metadata(itinerary: dict[str, Any], warnings: list[str], candidate_count: int, required_count: int) -> dict[str, Any]:
+    itinerary["planning_warnings"] = warnings
+    itinerary["candidate_count"] = candidate_count
+    itinerary["required_candidate_count"] = required_count
+    return itinerary
 
 
-# ===== 对外接口 =====
+def _fallback(request: PlanningRequest, reason: str) -> ItineraryGenerationOutcome:
+    outcome = plan_itinerary(request)
+    itinerary = merge_narrative(outcome, None)
+    return ItineraryGenerationOutcome(
+        itinerary=_with_planning_metadata(
+            itinerary,
+            outcome.warnings,
+            outcome.candidate_count,
+            outcome.required_count,
+        ),
+        generation_source="planner",
+        validation_status="fallback",
+        fallback_reason=reason,
+        model_version="none",
+    )
 
-async def generate_itinerary(destination: str, days: int, budget: int,
-                              preferences: List[str], pois: List[Dict[str, Any]],
-                              favorite_poi_ids: List[int] = None) -> Dict[str, Any]:
-    """
-    生成行程 JSON。
-    优先使用 LLM，失败时降级到 mock。
-    """
-    # 尝试 LLM 生成
-    llm_result = await _llm_generate(destination, days, budget, preferences, pois)
-    if llm_result is not None:
-        return llm_result
 
-    # 降级到 mock
-    logger.info(f"降级到 mock 生成: {destination} {days}天")
-    return _mock_generate(destination, days, budget, preferences, pois, favorite_poi_ids or [])
+async def generate_itinerary(
+    destination: str,
+    days: int,
+    budget: int,
+    preferences: list[str],
+    pois: list[dict[str, Any]],
+    favorite_poi_ids: list[int] | None = None,
+) -> ItineraryGenerationOutcome:
+    """Plan immutable facts first, then request and validate optional prose."""
+    request = PlanningRequest(
+        destination=destination,
+        days=days,
+        budget=budget,
+        preferences=preferences,
+        favorite_poi_ids=favorite_poi_ids or [],
+        candidates=pois,
+    )
+    outcome = plan_itinerary(request)
+    for warning in outcome.warnings:
+        logger.warning("规划器降级: %s", warning)
+
+    fact_pack = build_fact_pack(request, outcome)
+    first_call = await _llm_generate(fact_pack)
+    if not first_call.available:
+        return _fallback(request, first_call.error or "LLM Provider 不可用")
+
+    narrative, errors = validate_narrative(first_call.payload, outcome)
+    if narrative is not None:
+        return ItineraryGenerationOutcome(
+            itinerary=_with_planning_metadata(
+                merge_narrative(outcome, narrative),
+                outcome.warnings,
+                outcome.candidate_count,
+                outcome.required_count,
+            ),
+            generation_source="llm",
+            validation_status="valid",
+            model_version=first_call.model_id,
+        )
+
+    repair_errors = errors or [first_call.error or "模型输出不可解析"]
+    repair_call = await _llm_generate(fact_pack, repair_errors, first_call.payload)
+    repaired_narrative, repaired_errors = validate_narrative(repair_call.payload, outcome)
+    if repaired_narrative is not None:
+        return ItineraryGenerationOutcome(
+            itinerary=_with_planning_metadata(
+                merge_narrative(outcome, repaired_narrative),
+                outcome.warnings,
+                outcome.candidate_count,
+                outcome.required_count,
+            ),
+            generation_source="llm_repaired",
+            validation_status="repaired",
+            model_version=repair_call.model_id,
+        )
+
+    reason_parts = repair_errors + repaired_errors
+    if repair_call.error:
+        reason_parts.append(repair_call.error)
+    reason = "；".join(dict.fromkeys(reason_parts)) or "模型修复失败"
+    return _fallback(request, reason)

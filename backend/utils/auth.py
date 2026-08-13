@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, Header
 from config import settings
 from utils.logger import logger
 
-JWT_SECRET = settings.siliconflow_api_key[:32] if settings.siliconflow_api_key else "tripcraft_secret_2026"
+JWT_SECRET = settings.jwt_secret
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_DAYS = 7
 

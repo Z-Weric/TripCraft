@@ -81,15 +81,15 @@ async def search_pois(city: str, category: str = None, db_pois: List[Dict] = Non
         return []
 
 
-async def verify_spot(spot_name: str, lat: float, lng: float) -> bool:
-    """通过高德 API 验证景点是否存在。结果缓存 24h。"""
+async def verify_spot(spot_name: str, lat: float, lng: float) -> bool | None:
+    """验证景点；未配置或请求异常时返回 None，由调用方进行本地验证。"""
+    if not has_api_key():
+        return None
+
     cache_key = f"verify:{spot_name}:{lat:.4f}:{lng:.4f}"
     cached = amap_verify_cache.get(cache_key)
     if cached is not None:
         return cached
-
-    if not has_api_key():
-        return True  # 无 API Key 时跳过验证
 
     params = {
         "key": AMAP_API_KEY,
@@ -119,4 +119,4 @@ async def verify_spot(spot_name: str, lat: float, lng: float) -> bool:
         return False
     except Exception as e:
         logger.error("高德景点验证失败", extra={"error": str(e), "spot": spot_name})
-        return False
+        return None

@@ -7,6 +7,8 @@ from typing import Optional
 import json
 import time
 
+from services.llm_provider import ProviderUnavailableError
+from services.model_router import route_model_request
 from services.rag_service import search_pois_by_rag, is_index_ready
 from utils.logger import logger
 
@@ -50,6 +52,15 @@ def _retrieve_context(question: str, destination: str = None) -> str:
     return "\n".join(parts)
 
 
+def _fallback_answer(context: str) -> str:
+    if not context:
+        return "咕咕~ 我暂时没有相关信息，你可以试试换个问法！"
+    answer = "咕咕~ 作为你的专属旅行信差 Crafty，我帮你查到了以下信息：\n\n"
+    for line in context.split("\n")[:3]:
+        answer += f"📍 {line}\n"
+    return answer + "\n如果你想了解更详细的行程安排，可以在上方生成一份专属攻略。"
+
+
 @router.post("/api/chat")
 async def chat(req: ChatRequest):
     """流式 SSE 回答：先输出思考过程，再逐字输出 LLM 回答。"""
@@ -67,14 +78,13 @@ async def chat(req: ChatRequest):
         else:
             thinking_steps.append("知识库未检索到直接匹配，将基于旅行经验回答...")
 
-        thinking_steps.append("正在调用 LongCat-2.0 生成回答...")
+        route = route_model_request("chat", destination=req.destination or "")
+        thinking_steps.append(f"正在调用 {route.primary.model_id} 生成回答...")
 
         for step in thinking_steps:
             yield f"data: {json.dumps({'type': 'thinking', 'content': step}, ensure_ascii=False)}\n\n"
 
-        from services.llm_service import has_api_key, chat_with_context_stream
-
-        if has_api_key():
+        if route.primary.available or route.fallback_allowed:
             system_prompt = (
                 "你是 TripCraft 的旅行信差 Crafty，一只飞越了大江南北的信鸽。"
                 '你性格活泼，说话以"咕咕~"开头，对各地景点、美食、交通了如指掌。'
@@ -82,26 +92,52 @@ async def chat(req: ChatRequest):
                 "回答控制在 200 字以内，语气亲切但信息密度高。"
                 "如果知识库信息为空，你可以根据自己的旅行经验回答。"
             )
-            try:
-                async for chunk in chat_with_context_stream(
-                    system_prompt=system_prompt,
-                    user_message=req.message,
-                    context=context,
-                    temperature=0.7,
-                    max_tokens=400,
-                ):
-                    yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
-            except Exception as e:
-                logger.error(f"Chat LLM 调用失败: {e}")
-                yield f"data: {json.dumps({'type': 'content', 'content': f'[LLM 调用失败: {e}]'}, ensure_ascii=False)}\n\n"
+            messages = [
+                {"role": "system", "content": system_prompt + (f"\n\n景点知识库：\n{context}" if context else "")},
+                {"role": "user", "content": req.message},
+            ]
+            providers = [route.primary] + ([route.fallback] if route.fallback_allowed else [])
+            delivered = False
+            for index, provider in enumerate(providers):
+                if not provider.available:
+                    continue
+                provider_started = time.perf_counter()
+                output_characters = 0
+                try:
+                    async for chunk in provider.stream_chat(messages, temperature=0.7, max_tokens=400):
+                        delivered = True
+                        output_characters += len(chunk)
+                        yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
+                    logger.info(
+                        "Chat Provider 完成",
+                        extra={
+                            "provider": provider.model_id.split(":", 1)[0],
+                            "model": provider.model_id,
+                            "latency": round((time.perf_counter() - provider_started) * 1000),
+                            "tokens": max(1, output_characters // 4),
+                            "cost": 0 if provider.model_id.startswith("ollama:") else None,
+                            "route_reason": route.reason,
+                            "fallback_reason": "primary_unavailable" if index else None,
+                        },
+                    )
+                    break
+                except ProviderUnavailableError as exc:
+                    logger.warning(
+                        "Chat Provider 不可用",
+                        extra={
+                            "provider": provider.model_id.split(":", 1)[0],
+                            "model": provider.model_id,
+                            "route_reason": route.reason,
+                            "fallback_reason": str(exc),
+                        },
+                    )
+                    if delivered:
+                        break
+            if not delivered:
+                answer = _fallback_answer(context)
+                yield f"data: {json.dumps({'type': 'content', 'content': answer}, ensure_ascii=False)}\n\n"
         else:
-            if context:
-                answer = "咕咕~ 作为你的专属旅行信差 Crafty，我帮你查到了以下信息：\n\n"
-                for line in context.split("\n")[:3]:
-                    answer += f"📍 {line}\n"
-                answer += "\n如果你想了解更详细的行程安排，可以在上方搜索栏生成一份专属攻略明信片哦~"
-            else:
-                answer = '咕咕~ 我暂时没有相关信息，你可以试试换个问法！'
+            answer = _fallback_answer(context)
             yield f"data: {json.dumps({'type': 'content', 'content': answer}, ensure_ascii=False)}\n\n"
 
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"

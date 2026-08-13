@@ -1,130 +1,74 @@
-"""LLM 服务 — 硅基流动 API 封装（v2 异步版 + 流式输出）
+"""Provider factory and compatibility helpers for model consumers."""
 
-使用硅基流动 (siliconflow.cn) 的 OpenAI 兼容接口。
-"""
-
-import json
-from typing import List, Dict, Any, Generator, Optional
-import httpx
+from collections.abc import AsyncIterator
+from functools import lru_cache
 
 from config import settings
-from utils.logger import logger
-
-API_KEY = settings.siliconflow_api_key
-LLM_MODEL = settings.llm_model
-API_BASE = settings.llm_api_base
-TIMEOUT = settings.llm_timeout
-
-# 全局复用 async client
-_async_client: Optional[httpx.AsyncClient] = None
+from services.llm_provider import (
+    DisabledProvider,
+    LLMProvider,
+    OllamaProvider,
+    OpenAICompatibleProvider,
+)
 
 
-def _get_async_client() -> httpx.AsyncClient:
-    global _async_client
-    if _async_client is None or _async_client.is_closed:
-        _async_client = httpx.AsyncClient(timeout=TIMEOUT)
-    return _async_client
+def _enabled_scopes() -> set[str]:
+    return {
+        scope.strip().lower()
+        for scope in settings.llm_enabled_scopes.split(",")
+        if scope.strip()
+    }
+
+
+@lru_cache(maxsize=8)
+def build_provider(name: str) -> LLMProvider:
+    normalized = name.strip().lower().replace("-", "_")
+    if normalized == "ollama":
+        return OllamaProvider(
+            base_url=settings.ollama_base_url,
+            model=settings.ollama_model,
+            timeout=settings.ollama_timeout,
+            retries=settings.ollama_retries,
+            max_concurrency=settings.ollama_max_concurrency,
+            queue_timeout=settings.ollama_queue_timeout,
+            circuit_failure_threshold=settings.ollama_circuit_failure_threshold,
+            circuit_cooldown=settings.ollama_circuit_cooldown,
+        )
+    if normalized in {"openai", "openai_compatible", "siliconflow"}:
+        return OpenAICompatibleProvider(
+            api_url=settings.llm_api_base,
+            api_key=settings.siliconflow_api_key,
+            model=settings.llm_model,
+            timeout=settings.llm_timeout,
+        )
+    return DisabledProvider()
+
+
+def get_default_provider(scope: str = "itinerary") -> LLMProvider:
+    if scope.lower() not in _enabled_scopes():
+        return DisabledProvider()
+    return build_provider(settings.llm_default_provider)
+
+
+def get_fallback_provider(scope: str = "itinerary") -> LLMProvider:
+    if scope.lower() not in _enabled_scopes():
+        return DisabledProvider()
+    return build_provider(settings.llm_fallback_provider)
 
 
 def has_api_key() -> bool:
-    return bool(API_KEY)
-
-
-async def chat_completion(
-    messages: List[Dict[str, str]],
-    temperature: float = 0.7,
-    max_tokens: int = 1000,
-) -> str:
-    """非流式调用，返回完整文本。"""
-    if not has_api_key():
-        return "LLM API Key 未配置"
-
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": LLM_MODEL,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
-
-    try:
-        client = _get_async_client()
-        resp = await client.post(API_BASE, json=payload, headers=headers)
-        data = resp.json()
-        if "choices" in data and len(data["choices"]) > 0:
-            return data["choices"][0]["message"]["content"].strip()
-        logger.error("LLM 返回异常", extra={"error": str(data)})
-        return f"LLM 返回异常: {data}"
-    except Exception as e:
-        logger.error("LLM 调用失败", extra={"error": str(e)})
-        return f"LLM 调用失败: {e}"
+    """Backward-compatible availability check for current chat callers."""
+    return get_default_provider("chat").available
 
 
 async def chat_completion_stream(
-    messages: List[Dict[str, str]],
+    messages: list[dict[str, str]],
     temperature: float = 0.7,
     max_tokens: int = 800,
-) -> Generator[str, None, None]:
-    """流式调用 LLM，逐块 yield 文本内容。"""
-    if not has_api_key():
-        yield "LLM API Key 未配置"
-        return
-
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": LLM_MODEL,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": True,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            async with client.stream("POST", API_BASE, json=payload, headers=headers) as resp:
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                yield content
-                        except json.JSONDecodeError:
-                            continue
-    except Exception as e:
-        logger.error("LLM 流式调用失败", extra={"error": str(e)})
-        yield f"\n[LLM 调用失败: {e}]"
-
-
-async def chat_with_context(
-    system_prompt: str,
-    user_message: str,
-    context: str = "",
-    temperature: float = 0.7,
-    max_tokens: int = 800,
-) -> str:
-    """带 RAG 上下文的 LLM 对话（非流式）。"""
-    full_system = system_prompt
-    if context:
-        full_system += f"\n\n以下是你可以参考的景点知识库信息：\n{context}"
-
-    messages = [
-        {"role": "system", "content": full_system},
-        {"role": "user", "content": user_message},
-    ]
-    return await chat_completion(messages, temperature, max_tokens)
+) -> AsyncIterator[str]:
+    provider = get_default_provider("chat")
+    async for chunk in provider.stream_chat(messages, temperature, max_tokens):
+        yield chunk
 
 
 async def chat_with_context_stream(
@@ -133,14 +77,11 @@ async def chat_with_context_stream(
     context: str = "",
     temperature: float = 0.7,
     max_tokens: int = 800,
-) -> Generator[str, None, None]:
-    """带 RAG 上下文的 LLM 对话（流式）。"""
-    full_system = system_prompt
+) -> AsyncIterator[str]:
     if context:
-        full_system += f"\n\n以下是你可以参考的景点知识库信息：\n{context}"
-
+        system_prompt += f"\n\n以下是你可以参考的景点知识库信息：\n{context}"
     messages = [
-        {"role": "system", "content": full_system},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_message},
     ]
     async for chunk in chat_completion_stream(messages, temperature, max_tokens):

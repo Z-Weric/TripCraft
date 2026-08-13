@@ -2,10 +2,12 @@ import { create } from "zustand";
 import {
   generateItineraryStream,
   saveTrip,
+  updateTrip,
   type Itinerary,
   type Verification,
   type GenerateRequest,
   type ItineraryItem,
+  type GenerationMetadata,
 } from "../services/api";
 
 let _currentTripId: number | null = null;
@@ -15,6 +17,7 @@ interface TripState {
   loading: boolean;
   itinerary: Itinerary | null;
   verification: Verification | null;
+  generationMetadata: GenerationMetadata | null;
   error: string | null;
   lastRequest: GenerateRequest | null;
   progressStage: string;
@@ -30,6 +33,7 @@ export const useTripStore = create<TripState>((set, get) => ({
   loading: false,
   itinerary: null,
   verification: null,
+  generationMetadata: null,
   error: null,
   lastRequest: null,
   progressStage: "",
@@ -42,6 +46,7 @@ export const useTripStore = create<TripState>((set, get) => ({
       lastRequest: req,
       itinerary: null,
       verification: null,
+      generationMetadata: null,
       progressStage: "start",
       progressMessage: "正在启动生成...",
     });
@@ -51,10 +56,11 @@ export const useTripStore = create<TripState>((set, get) => ({
         onProgress: (stage, message) => {
           set({ progressStage: stage, progressMessage: message });
         },
-        onDone: (itinerary, verification) => {
+        onDone: (itinerary, verification, generationMetadata) => {
           set({
             itinerary,
             verification,
+            generationMetadata,
             loading: false,
             progressStage: "",
             progressMessage: "",
@@ -69,6 +75,7 @@ export const useTripStore = create<TripState>((set, get) => ({
               preferences: req.preferences,
               itinerary,
               verification,
+              ...generationMetadata,
             }).then((res) => { _currentTripId = res.id; }).catch(() => {/* 保存失败不阻塞用户 */});
           } else {
             _currentTripId = 0; // 游客模式
@@ -103,6 +110,7 @@ export const useTripStore = create<TripState>((set, get) => ({
       loading: false,
       itinerary: null,
       verification: null,
+      generationMetadata: null,
       error: null,
       lastRequest: null,
       progressStage: "",
@@ -125,5 +133,9 @@ export const useTripStore = create<TripState>((set, get) => ({
       newItinerary.total_cost = days.reduce((s, d) => s + (d.day_cost || 0), 0);
       return { itinerary: newItinerary };
     });
+    const updated = get().itinerary;
+    if (_currentTripId && _currentTripId > 0 && updated) {
+      updateTrip(_currentTripId, updated).catch(() => {/* 编辑同步失败不阻塞本地操作 */});
+    }
   },
 }));

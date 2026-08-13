@@ -101,6 +101,11 @@ export default function ItineraryTimeline({ itinerary, onEdit }: ItineraryTimeli
     setReplaceModalOpen(true);
   };
 
+  const handleSpotClick = (poiId: number) => {
+    setPoiDetailId(poiId);
+    setPoiDetailOpen(true);
+  };
+
   const handleReplace = (newSpot: ItineraryItem) => {
     if (!replacingSpot) return;
     const dayItems = [...(itinerary.itinerary[replacingSpot.dayIdx].items || [])];
@@ -149,7 +154,7 @@ export default function ItineraryTimeline({ itinerary, onEdit }: ItineraryTimeli
                         key={item.spot + item.time}
                         item={item}
                         onReplace={() => handleReplaceClick(idx, item)}
-                        onSpotClick={(poiId) => { setPoiDetailId(poiId); setPoiDetailOpen(true); }}
+                        onSpotClick={handleSpotClick}
                       />
                     ))}
                   </SortableContext>
@@ -165,7 +170,7 @@ export default function ItineraryTimeline({ itinerary, onEdit }: ItineraryTimeli
                       </div>
                       <div className="flex-1">
                         <div className="text-xs text-foreground-tertiary font-mono mb-0.5">{item.time}</div>
-                        <div className="text-base font-semibold font-display text-foreground mb-1 hover:text-primary cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); if (item.poi_id) { onSpotClick(item.poi_id); } }}>{item.spot}</div>
+                        <div className="text-base font-semibold font-display text-foreground mb-1 hover:text-primary cursor-pointer transition-colors" onClick={(e) => { e.stopPropagation(); if (item.poi_id) { handleSpotClick(item.poi_id); } }}>{item.spot}</div>
                         <div className="flex gap-2 items-center text-xs text-foreground-secondary">
                           <Tag style={{ fontSize: 10, padding: "1px 6px", borderRadius: 2, color: CATEGORY_COLORS[item.category] || "#8B6F4E", background: `${CATEGORY_COLORS[item.category] || "#8B6F4E"}1f`, border: "none" }}>{item.category}</Tag>
                           <span>{item.duration}</span>

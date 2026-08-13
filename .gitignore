@@ -5,6 +5,7 @@ __pycache__/
 data/tripcraft.db
 data/*.pkl
 backend/.env
+docker/.env
 frontend/dist/
 .vite/
 .env.local

@@ -1,6 +1,6 @@
 """数据模型 — 景点数据库 + 用户反馈 + 行程持久化 (v2 MySQL)"""
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, Index, event
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, Index, event, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 import os
@@ -94,6 +94,43 @@ class SavedTrip(Base):
     user_id = Column(Integer, nullable=True, index=True)
     is_public = Column(Integer, default=0)
     user_rating = Column(Integer, default=0)
+    model_version = Column(String(100), default="none")
+    planner_version = Column(String(50), default="planner-v1")
+    poi_version = Column(String(64), nullable=True)
+    generation_source = Column(String(30), default="planner")
+    validation_status = Column(String(30), default="fallback")
+    fallback_reason = Column(Text, nullable=True)
+    version = Column(Integer, default=1)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TripEditEvent(Base):
+    """Structured difference between consecutive saved itinerary versions."""
+    __tablename__ = "trip_edit_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    from_version = Column(Integer, nullable=False)
+    to_version = Column(Integer, nullable=False)
+    action_types = Column(String(255), nullable=False)
+    diff_json = Column(Text, nullable=False)
+    before_hash = Column(String(64), nullable=False)
+    after_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ShareToken(Base):
+    """Persistent, revocable token for read-only access to a saved trip."""
+    __tablename__ = "share_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_id = Column(Integer, nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    created_by = Column(Integer, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class User(Base):
@@ -208,6 +245,7 @@ class PostLike(Base):
 def init_db():
     """初始化数据库 + 写入种子景点数据"""
     Base.metadata.create_all(engine)
+    _apply_additive_migrations()
 
     from .seed_data import SEED_POIS
     db = SessionLocal()
@@ -217,6 +255,36 @@ def init_db():
         db.commit()
         logger.info(f"已写入 {len(SEED_POIS)} 条种子景点数据")
     db.close()
+
+
+def _apply_additive_migrations() -> None:
+    """Add newly introduced nullable/defaulted columns without rebuilding user tables."""
+    migrations = {
+        "saved_trips": {
+            "model_version": "VARCHAR(100) DEFAULT 'none'",
+            "planner_version": "VARCHAR(50) DEFAULT 'planner-v1'",
+            "poi_version": "VARCHAR(64) NULL",
+            "generation_source": "VARCHAR(30) DEFAULT 'planner'",
+            "validation_status": "VARCHAR(30) DEFAULT 'fallback'",
+            "fallback_reason": "TEXT NULL",
+            "version": "INTEGER DEFAULT 1",
+            "updated_at": "DATETIME NULL",
+        }
+    }
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    with engine.begin() as connection:
+        for table_name, columns in migrations.items():
+            if table_name not in table_names:
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table_name)}
+            for column_name, definition in columns.items():
+                if column_name in existing:
+                    continue
+                connection.execute(
+                    text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+                )
+                logger.info(f"数据库迁移完成: {table_name}.{column_name}")
 
 
 def get_db():
