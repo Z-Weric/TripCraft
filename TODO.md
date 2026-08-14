@@ -70,7 +70,7 @@
 
 ### 0.4 Phase 0 完成检查
 
-- [ ] 流式请求中收藏加权生效。
+- [x] 流式请求中收藏加权生效。
 - [x] 无高德 Key 时不会出现虚假的 `spots_valid=true`。
 - [x] 私有行程无法被未授权查看、分享或导出。
 - [x] JWT 不依赖外部 LLM API Key。
@@ -173,9 +173,12 @@
   - 文件：`backend/database/models.py`、数据库迁移、`backend/api/itineraries.py`
 - [x] 记录用户编辑差异：替换、删除、排序调整、备注修改及最终保存版本。
   - 文件：行程编辑 API、数据模型、前端编辑逻辑
-- [ ] 记录低评分和验证失败的结构化原因，禁止把单条反馈直接用于在线训练。
-- [ ] 新增训练样本导出脚本，默认脱敏，按质量标签筛选。
+- [x] 记录低评分和验证失败的结构化原因，禁止把单条反馈直接用于在线训练。
+  - 文件：新增 `backend/services/quality_log_service.py`、`backend/database/models.py`（TripQualityLog 表）、修改 `backend/api/itineraries.py`
+  - 验收：低评分(<=2)和验证失败(overall_valid=false)时写入结构化记录，包含错误码、生成来源、回退原因；不含 PII
+- [x] 新增训练样本导出脚本，默认脱敏，按质量标签筛选。
   - 文件：新增 `model/export_training_dataset.py`
+  - 验收：支持 SFT/评测/负样本三种导出，按质量标签(gold/silver/fallback/negative)分类，移除 user_id 等敏感字段
 
 ### 3.2 黄金数据与评测集
 
@@ -247,9 +250,9 @@
 
 ## 建议开发顺序
 
-1. [ ] 完成 0.1：统一生成请求与编排。
-2. [ ] 完成 0.2：严格事实验证和测试。
-3. [ ] 完成 0.3：分享、导出、JWT 安全修复。
+1. [x] 完成 0.1：统一生成请求与编排。
+2. [x] 完成 0.2：严格事实验证和测试。
+3. [x] 完成 0.3：分享、导出、JWT 安全修复。
 4. [x] 完成 1.1：规划器拆分及测试。
 5. [x] 完成 1.2：事实包、Schema 回填、修复与降级。
 6. [x] 完成 2.1-2.2：Ollama Provider、外部回退和观测。
@@ -270,3 +273,6 @@
 | 2026-08-13 | Phase 2.2 | 已完成 | 增加复杂度路由、外部回退原因、Ollama 超时/并发队列/熔断、请求 ID 与 Provider 观测；聊天默认走本地模型；50 个后端测试和前端生产构建通过；Docker MySQL/Redis + qwen3.5:9b 真实行程与流式聊天调用通过 |
 | 2026-08-13 | Phase 3.1（追踪字段） | 已完成 | SavedTrip 增加模型、规划器、POI 版本、来源、验证状态和回退原因；提供幂等增量迁移；52 个后端测试和前端构建通过；Docker MySQL 真实迁移与事务回滚验证通过 |
 | 2026-08-13 | Phase 3.1（编辑差异） | 已完成 | 新增行程版本与 trip_edit_events，结构化记录替换、删除、新增、排序和备注变化；前端编辑后同步最终版本；55 个后端测试和前端构建通过；Docker MySQL 建表与事务回滚验证通过 |
+| 2026-08-14 | Phase 0.4 | 已完成 | 验证流式请求中收藏加权生效：新增 3 个测试覆盖流式 favorite_poi_ids 传递、规划器收藏评分加权和流式/非流式一致性；59 个后端测试通过。Phase 0 全部完成 |
+| 2026-08-14 | Phase 3.1（质量记录） | 已完成 | 新增 TripQualityLog 表和 quality_log_service：低评分(<=2)和验证失败时记录结构化原因（错误码、生成来源、回退原因），不含 PII；接入 rate_trip 和 save_trip；17 个新增测试，76 个后端测试通过 |
+| 2026-08-14 | Phase 3.1（导出脚本） | 已完成 | 新增 model/export_training_dataset.py：支持 SFT/评测/负样本三种格式导出，按 gold/silver/fallback/negative 质量标签分类，移除 user_id 等敏感字段，输出 manifest.json |

@@ -8,6 +8,7 @@ import json
 import hashlib
 
 from database.models import get_db, SavedTrip, TripEditEvent
+from services.quality_log_service import log_low_rating, log_validation_failure
 from utils.auth import get_current_user, require_user
 from utils.logger import logger
 
@@ -170,6 +171,15 @@ async def save_trip(req: SaveTripRequest, db: Session = Depends(get_db), authori
     db.add(trip)
     db.commit()
     db.refresh(trip)
+
+    if req.verification and not req.verification.get("overall_valid", True):
+        log_validation_failure(
+            db,
+            trip=trip,
+            verification=req.verification,
+        )
+        db.commit()
+
     logger.info(f"行程已保存: id={trip.id}, user={user['user_id']}, {req.destination} {req.days}天")
     return {"status": "ok", "id": trip.id, "guest": False}
 
@@ -321,6 +331,11 @@ async def rate_trip(trip_id: int, rating: int = 0, db: Session = Depends(get_db)
         return {"error": "无权操作"}
 
     trip.user_rating = max(0, min(5, rating))
+
+    if trip.user_rating <= 2:
+        verification = json.loads(trip.verification_json) if trip.verification_json else None
+        log_low_rating(db, trip, trip.user_rating, verification)
+
     db.commit()
     logger.info(f"行程评分: id={trip_id}, rating={trip.user_rating}")
     return {"status": "ok", "user_rating": trip.user_rating}

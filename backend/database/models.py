@@ -242,6 +242,33 @@ class PostLike(Base):
     post_id = Column(Integer, nullable=False)
 
 
+class TripQualityLog(Base):
+    """行程质量结构化记录 — 低评分或验证失败时写入，供训练数据筛选使用。
+
+    design:
+      - trigger: "low_rating" | "validation_failed"
+      - reason_json: 结构化原因（验证错误码列表、生成来源、回退原因等）
+      - 禁止把单条记录直接用于在线训练，仅供离线分析。
+    """
+    __tablename__ = "trip_quality_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_id = Column(Integer, nullable=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    trigger = Column(String(30), nullable=False, index=True)
+    destination = Column(String(50))
+    days = Column(Integer)
+    budget = Column(Integer)
+    preferences = Column(String(255))
+    generation_source = Column(String(30))
+    validation_status = Column(String(30))
+    fallback_reason = Column(Text, nullable=True)
+    model_version = Column(String(100), default="none")
+    error_codes = Column(String(500), nullable=True)
+    reason_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db():
     """初始化数据库 + 写入种子景点数据"""
     Base.metadata.create_all(engine)
@@ -269,7 +296,23 @@ def _apply_additive_migrations() -> None:
             "fallback_reason": "TEXT NULL",
             "version": "INTEGER DEFAULT 1",
             "updated_at": "DATETIME NULL",
-        }
+        },
+        "trip_quality_logs": {
+            "trip_id": "INTEGER NULL",
+            "user_id": "INTEGER NULL",
+            "trigger": "VARCHAR(30) NOT NULL",
+            "destination": "VARCHAR(50) NULL",
+            "days": "INTEGER NULL",
+            "budget": "INTEGER NULL",
+            "preferences": "VARCHAR(255) NULL",
+            "generation_source": "VARCHAR(30) NULL",
+            "validation_status": "VARCHAR(30) NULL",
+            "fallback_reason": "TEXT NULL",
+            "model_version": "VARCHAR(100) DEFAULT 'none'",
+            "error_codes": "VARCHAR(500) NULL",
+            "reason_json": "TEXT NOT NULL",
+            "created_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        },
     }
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
