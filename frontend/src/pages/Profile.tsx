@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Spin, Empty, message, Modal, Input } from "antd";
-import { ArrowLeft, Clock, Trash2, Star, MapPin, Edit2, Heart, Map as MapIcon } from "lucide-react";
+import { ArrowLeft, Clock, Trash2, Star, MapPin, Edit2, Heart, Map as MapIcon, FileCheck2 } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import { useUserStore } from "../stores/userStore";
 import { listTrips, deleteTrip, isLoggedIn, updateProfile, type TripSummary } from "../services/api";
@@ -110,9 +110,12 @@ export default function Profile() {
       </header>
 
       <div className="max-w-[888px] mx-auto px-6 py-10 flex-1 w-full">
-        <Link to="/home" className="text-xs text-foreground-tertiary hover:text-primary font-mono flex items-center gap-1 mb-4">
-          <ArrowLeft className="w-3.5 h-3.5" />返回首页
-        </Link>
+          <Link to="/home" className="text-xs text-foreground-tertiary hover:text-primary font-mono flex items-center gap-1 mb-4">
+            <ArrowLeft className="w-3.5 h-3.5" />返回首页
+          </Link>
+          <Link to="/training-review" className="mb-4 inline-flex items-center gap-1 text-xs font-mono text-foreground-tertiary hover:text-primary">
+            <FileCheck2 className="h-3.5 w-3.5" />训练样本审核
+          </Link>
 
         {/* 用户信息卡 + 编辑 */}
         <div className="bg-background-secondary border border-border rounded-sm p-6 mb-4 flex items-center gap-4">

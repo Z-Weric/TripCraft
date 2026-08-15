@@ -88,9 +88,10 @@ async def verify_spot_poi(
     lng: float,
     known_pois: list[dict[str, Any]] | None = None,
     poi_id: int | None = None,
+    verify_external: bool = True,
 ) -> SpotVerification:
     """Use AMap when available, otherwise require a local POI match."""
-    external_result = await _verify_spot_external(spot_name, lat, lng)
+    external_result = await _verify_spot_external(spot_name, lat, lng) if verify_external else None
     if external_result is True:
         return {"valid": True, "source": "external"}
     if external_result is False:
@@ -204,7 +205,12 @@ def _check_route(plans: list[dict[str, Any]], errors: list[dict[str, Any]]) -> b
     return route_valid
 
 
-async def verify_itinerary(itinerary: Any, budget: int, known_pois: list[dict[str, Any]]) -> dict[str, Any]:
+async def verify_itinerary(
+    itinerary: Any,
+    budget: int,
+    known_pois: list[dict[str, Any]],
+    verify_external: bool = True,
+) -> dict[str, Any]:
     """Return a complete validation report without raising on malformed model output."""
     errors: list[dict[str, Any]] = []
     items = _structure_items(itinerary, errors)
@@ -246,6 +252,7 @@ async def verify_itinerary(itinerary: Any, budget: int, known_pois: list[dict[st
             float(item["lng"]),
             known_pois,
             item.get("poi_id"),
+            verify_external,
         )
         if result["valid"]:
             verified_count += 1

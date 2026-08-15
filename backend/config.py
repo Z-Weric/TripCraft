@@ -16,6 +16,21 @@ class Settings(BaseSettings):
     # Security
     jwt_secret: str = "change-me-in-production"
     share_token_expire_hours: int = Field(default=168, gt=0, le=8760)
+    training_reviewer_emails: str = ""
+
+    # Automated offline training-data evaluation. Kept disabled until calibrated.
+    auto_eval_enabled: bool = False
+    auto_eval_judge_providers: str = "ollama,judge_a"
+    auto_eval_judge_a_api_base: str = ""
+    auto_eval_judge_a_api_key: str = ""
+    auto_eval_judge_a_model: str = ""
+    auto_eval_judge_b_api_base: str = ""
+    auto_eval_judge_b_api_key: str = ""
+    auto_eval_judge_b_model: str = ""
+    auto_eval_max_concurrency: int = Field(default=2, gt=0, le=8)
+    auto_eval_timeout: int = Field(default=45, gt=0, le=300)
+    auto_eval_accept_confidence: float = Field(default=0.90, ge=0, le=1)
+    auto_eval_sample_rate: float = Field(default=0.10, ge=0, le=1)
 
     # Database
     database_url: str = "mysql+pymysql://root:zjy123@localhost:3306/tripcraft?charset=utf8mb4"

@@ -12,7 +12,6 @@ export default function ArticleEditor() {
   const [article, setArticle] = useState("");
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [itinerary, setItinerary] = useState<Itinerary | null>(null);
-  const [packedItems, setPackedItems] = useState<string[]>([]);
 
   useEffect(() => {
     // 从 sessionStorage 获取行程数据
@@ -25,7 +24,6 @@ export default function ArticleEditor() {
     }
     const trip = JSON.parse(tripJson) as Itinerary;
     setItinerary(trip);
-    setPackedItems(itemsJson ? JSON.parse(itemsJson) : []);
 
     // 调用 AI 生成文章
     setLoading(true);

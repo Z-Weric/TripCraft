@@ -182,19 +182,29 @@
 
 ### 3.2 黄金数据与评测集
 
-- [ ] 制定人工审核规范：景点真实性、路线合理性、预算、时间安排、可读性和偏好匹配。
+- [x] 制定人工审核规范：景点真实性、路线合理性、预算、时间安排、可读性和偏好匹配。
   - 文件：新增 `model/ANNOTATION_GUIDE.md`
-- [ ] 建立独立的 train/validation/test 划分，按请求和 POI 序列去重。
+- [x] 建立独立的 train/validation/test 划分，按请求和 POI 序列去重。
   - 文件：新增 `model/build_dataset.py`
-- [ ] 建立固定离线评测脚本。
+- [x] 建立固定离线评测脚本。
   - 指标：Schema 合法率、候选 POI 违规率、业务规则通过率、无需修复率、P95 时延。
   - 文件：新增 `model/evaluate_model.py`
+- [x] 建立受限人工审核池，双人一致复核后才可定为训练质量标签。
+  - 文件：新增 `backend/api/training_reviews.py`、`frontend/src/pages/TrainingReview.tsx`
+  - 验收：仅配置白名单审核员可访问；结论分歧需第三人裁决；不记录自由文本和用户身份信息到训练样本。
+- [x] 建立自动候选数据流水线：条件矩阵、攻略生成采集、固定挑战集、硬规则和双模型裁判聚合。
+  - 文件：新增 `model/generate_benchmark_cases.py`、`model/run_generation_benchmark.py`、`model/auto_label_training_samples.py`、`backend/services/training_judge_service.py`
+  - 验收：批量结果与用户行程隔离；硬规则失败直接为 negative；未校准的自动标签只能为 `auto_gold_candidate`，不能直接进入 SFT。
+- [x] 支持独立裁判配置和已校准自动候选的显式批准批次导出。
+  - 文件：新增 `model/approve_auto_label_batch.py`、`model/export_approved_auto_labels.py`
+  - 验收：生成模型不评审自身；挑战集不能批准或导出；未批准标签不能进入 SFT JSONL。
+- [ ] 用人工基准集校准自动裁判阈值，并按城市/困难桶记录精确率后才允许批准自动候选。
 - [ ] 仅在黄金数据和评测集达标后，扩充外部教师模型生成的数据。
 
 ### 3.3 SFT 与部署
 
-- [ ] 更新 `MODEL_TRAINING_TODO.md`，使其与“事实包 + 允许字段”协议一致。
-- [ ] 新建 LLaMA-Factory SFT 配置和数据集注册说明。
+- [x] 更新 `MODEL_TRAINING_TODO.md`，使其与“事实包 + 允许字段”协议一致。
+- [x] 新建 LLaMA-Factory SFT 配置和数据集注册说明。
   - 文件：新增 `model/sft_config.yaml`、`model/LLAMA_FACTORY_DATASET.md`
 - [ ] 先完成 SFT 训练和离线评测，暂不启动 GSPO。
 - [ ] 通过验收后导出模型并创建 Ollama `tripcraft` 模型。
@@ -276,3 +286,7 @@
 | 2026-08-14 | Phase 0.4 | 已完成 | 验证流式请求中收藏加权生效：新增 3 个测试覆盖流式 favorite_poi_ids 传递、规划器收藏评分加权和流式/非流式一致性；59 个后端测试通过。Phase 0 全部完成 |
 | 2026-08-14 | Phase 3.1（质量记录） | 已完成 | 新增 TripQualityLog 表和 quality_log_service：低评分(<=2)和验证失败时记录结构化原因（错误码、生成来源、回退原因），不含 PII；接入 rate_trip 和 save_trip；17 个新增测试，76 个后端测试通过 |
 | 2026-08-14 | Phase 3.1（导出脚本） | 已完成 | 新增 model/export_training_dataset.py：支持 SFT/评测/负样本三种格式导出，按 gold/silver/fallback/negative 质量标签分类，移除 user_id 等敏感字段，输出 manifest.json |
+| 2026-08-14 | Phase 3.2 | 已完成 | 新增人工审核规范、按请求与 POI 序列严格去重的确定性 train/validation/test 切分工具，以及无需外部 API 的固定离线评测脚本；新增工具单元测试通过 |
+| 2026-08-15 | Phase 3.3（SFT 准备） | 已完成 | 训练协议改为“不可变事实包输入 + 仅允许文案字段输出”；新增 LLaMA-Factory QLoRA 配置、数据集注册说明与 SFT 数据转换器，默认只接受人工复核的 gold 样本 |
+| 2026-08-15 | Phase 3.2（审核池） | 已完成 | 新增受限审核 API、双人一致/第三人裁决状态机与审核工作台；本地 MySQL 已创建审核表，审核记录只保存结构化结论与错误码 |
+| 2026-08-15 | Phase 3.2（自动评审） | 已完成 | 新增可复现场景矩阵、固定挑战集、端到端生成采集、独立 training_* 审计表、硬规则与多模型裁判聚合；自动候选不绕过人工校准 |

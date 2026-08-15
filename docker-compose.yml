@@ -38,9 +38,27 @@ services:
     networks:
       - tripcraft
 
+  mongo:
+    image: mongo:7.0
+    container_name: tripcraft-mongo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - tripcraft_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - tripcraft
+
 volumes:
   tripcraft_mysql_data:
   tripcraft_redis_data:
+  tripcraft_mongo_data:
 
 networks:
   tripcraft:

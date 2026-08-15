@@ -9,7 +9,7 @@ from database.models import init_db, SessionLocal, POI
 from api import generate, verify, feedback, pois, chat
 from api import generate_stream, itineraries, share, weather, packing
 from api import auth, pois_detail, user
-from api import article, community, foods
+from api import article, community, foods, training_reviews
 from api.errors import TripCraftError, trip_error_handler
 from services.rag_service import build_index_from_pois, is_index_ready
 from utils.logger import get_request_id, logger, reset_request_id, set_request_id
@@ -88,6 +88,7 @@ app.include_router(user.router)
 app.include_router(article.router)
 app.include_router(community.router)
 app.include_router(foods.router)
+app.include_router(training_reviews.router)
 
 # 注册异常处理
 app.add_exception_handler(TripCraftError, trip_error_handler)

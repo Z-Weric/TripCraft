@@ -1,240 +1,135 @@
-# TripCraft 模型训练 TODO
+# TripCraft 本地模型训练待办
 
-> 基座模型：Qwen2-7B-Instruct
-> 硬件：RTX 4060 16G
-> 训练方法：QLoRA 4-bit
-> 训练框架：LLaMA-Factory
-> 两阶段：SFT（监督微调）→ GSPO（偏好优化）
+> 目标：微调模型的 JSON 格式遵从和旅行文案表达。实时 POI 知识、路线、价格、坐标、时长和排序始终由后端规划器与 RAG 提供，不写入模型权重。
+>
+> 当前状态：已完成数据导出、人工审核规范、去重切分和离线评测工具；尚未满足训练数据与离线验收门槛，因此不启动 SFT 或 GSPO。
 
 ---
 
-## 一、环境准备
+## 一、不可变协议
 
-### 1.1 Python 版本升级
-- [ ] 检查当前 Python 版本（项目用 3.9，LLaMA-Factory 需要 ≥ 3.10）
-- [ ] 用 conda 或 pyenv 安装 Python 3.10+
-- [ ] 创建新的虚拟环境 `tripcraft-train`
-- [ ] 安装基础依赖：torch, transformers, accelerate
+- [x] 规划器生成并持有事实包：目的地、预算、偏好、POI、时间、路线、坐标、费用与时长。
+- [x] 模型只可输出 `summary`、`transport_advice`、`note`、`reason`，并必须原样引用事实包中的 `day` 与 `poi_id`。
+- [x] 后端使用 JSON Schema、POI 顺序校验和业务规则校验；失败时只允许一次修复，之后返回确定性规划结果。
+- [ ] 训练、日志和外部教师请求中不得包含 user_id、邮箱、电话、住址或自由文本中的个人信息。
 
-### 1.2 安装 LLaMA-Factory
-- [ ] `git clone https://github.com/hiyouga/LLaMA-Factory.git`
-- [ ] `cd LLaMA-Factory && pip install -e ".[torch,metrics]"`
-- [ ] 安装 bitsandbytes（4-bit 量化）：`pip install bitsandbytes`
-- [ ] 安装 flash-attn（加速训练）：`pip install flash-attn --no-build-isolation`
-- [ ] 验证 GPU 可用：`python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"`
+训练目标 JSON：
 
-### 1.3 下载基座模型
-- [ ] 从 ModelScope 下载 Qwen2-7B-Instruct（国内更快）
-- [ ] 模型存放路径：`/models/Qwen2-7B-Instruct`
-- [ ] 验证模型可加载
+```json
+{
+  "summary": "string",
+  "days": [{"day": 1, "transport_advice": "string", "items": [{"poi_id": 1, "note": "string", "reason": "string"}]}]
+}
+```
+
+禁止让 SFT 标签包含或改写 `spot`、`lat`、`lng`、`cost`、`duration`、日费用、总费用或 POI 排序。
 
 ---
 
-## 二、训练数据生成
+## 二、数据准备与审核
 
-### 2.1 完整数据生成
-- [ ] 运行 `python model/generate_training_data.py`（不加 --quick）
-- [ ] 预计产出：
-  - SFT 数据：~120 条（`model/training_data/train_sft.json`）
-  - GSPO 数据：~150 条（`model/training_data/train_gspo.json`）
-- [ ] 耗时：约 2-3 小时
+- [x] 从 SavedTrip 与质量日志导出脱敏的 SFT、评测和负样本。
+- [x] 人工审核规范见 [model/ANNOTATION_GUIDE.md](model/ANNOTATION_GUIDE.md)。
+- [x] 通过请求指纹和有序 POI 序列去重，生成独立 train/validation/test 切分。
+- [x] 新增 `prepare_sft_dataset.py`，把完整行程转为“事实包输入 + 仅文案输出”的 LLaMA-Factory Alpaca 数据。
+- [x] 新增受限训练样本审核池：两名审核员一致才自动定稿；分歧必须由第三名审核员裁决。
+- [ ] 两名审核员完成 gold 样本复核，覆盖主要城市、天数、预算和偏好组合。
+- [ ] 固定 `test.jsonl` 后禁止回流训练或用于手工调参。
 
-### 2.2 数据格式转换
-- [ ] SFT 数据转为 LLaMA-Factory 的 alpaca 格式（已有，确认格式正确）
-- [ ] GSPO 数据转为 LLaMA-Factory 的 preference 格式
-  ```json
-  {"prompt": "...", "chosen": "...", "rejected": "..."}
-  ```
-- [ ] 数据集注册：在 LLaMA-Factory 的 `data/dataset_info.json` 中注册
-  ```json
-  "tripcraft_sft": {
-    "file_name": "train_sft.json",
-    "columns": {"prompt": "instruction", "response": "output"}
-  },
-  "tripcraft_gspo": {
-    "file_name": "train_gspo.json",
-    "columns": {"prompt": "prompt", "chosen": "chosen", "rejected": "rejected"}
-  }
-  ```
-- [ ] 复制数据文件到 LaMA-Factory 的 data 目录
+```powershell
+python model/export_training_dataset.py --output model/training_data/exported --format all
+python model/build_dataset.py --input model/training_data/exported/sft_samples.jsonl --output model/training_data/splits
+python model/prepare_sft_dataset.py --input model/training_data/splits/train.jsonl --output model/training_data/tripcraft_sft_train.json
+```
 
-### 2.3 数据质量检查
-- [ ] 抽检 10 条 SFT 数据，确认 JSON 格式正确、景点真实
-- [ ] 抽检 5 条 GSPO 数据，确认 chosen 确实比 rejected 质量好
-- [ ] 统计数据分布（城市覆盖、天数分布、预算分布）
+默认仅转换 `gold` 样本。审核批准后才可显式传入 `--quality-labels gold,silver`。
 
----
+在 `backend/.env` 配置审核账号后，登录该账号并访问 `/training-review`：
 
-## 三、阶段一：SFT 监督微调
+```dotenv
+TRAINING_REVIEWER_EMAILS=reviewer-a@example.com,reviewer-b@example.com,reviewer-c@example.com
+```
 
-### 3.1 训练配置
-- [ ] 创建 SFT 训练配置 `model/sft_config.yaml`：
-  ```yaml
-  # 基本配置
-  model_name_or_path: /models/Qwen2-7B-Instruct
-  stage: sft
-  do_train: true
-  finetuning_type: lora
-  lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
-  lora_rank: 8
-  lora_alpha: 16
+该白名单未配置时，审核 API 会拒绝所有访问。审核页面不会暴露行程所属用户，也不接收自由文本备注；只保存结构化维度、错误码和内部审核账号 ID。
 
-  # 量化
-  quantization_bit: 4
-  quantization_method: bitsandbytes
+### 自动候选数据任务
 
-  # 数据
-  dataset: tripcraft_sft
-  template: qwen
-  cutoff_len: 2048
-  max_samples: 1000
+自动任务只写入独立的 `training_*` 表，不会创建 `SavedTrip` 或影响线上用户行程。先生成小规模场景，再调用已启动的本地生成接口：
 
-  # 训练参数
-  output_dir: /models/tripcraft-sft
-  num_train_epochs: 3
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8
-  learning_rate: 5e-5
-  warmup_ratio: 0.1
-  lr_scheduler_type: cosine
-  logging_steps: 10
-  save_steps: 50
-  bf16: true
-  ```
+```powershell
+python model/generate_benchmark_cases.py --output model/training_data/benchmark_cases.jsonl --max-cases 100 --include-challenges
+python model/run_generation_benchmark.py --input model/training_data/benchmark_cases.jsonl --output model/training_data/generation_runs.jsonl --persist
+```
 
-### 3.2 启动 SFT 训练
-- [ ] 启动训练：
-  ```bash
-  cd LLaMA-Factory
-  llamafactory-cli train ../model/sft_config.yaml
-  ```
-- [ ] 监控显存占用（应 < 16G）
-- [ ] 监控 loss 下降趋势
-- [ ] 预计训练时间：2-4 小时（120 条 × 3 epoch）
+先使用人工基准集校准自动裁判。完成校准并确认两个独立裁判 Provider 可用后，才在 `backend/.env` 启用：
 
-### 3.3 SFT 模型测试
-- [ ] 合并 LoRA 权重：
-  ```bash
-  llamafactory-cli export ../model/sft_merge.yaml
-  ```
-- [ ] 测试生成效果：用测试 prompt 调用模型，检查输出 JSON 格式
-- [ ] 对比 SFT 前后效果：是否学会了 TripCraft 行程格式
+```dotenv
+AUTO_EVAL_ENABLED=true
+AUTO_EVAL_JUDGE_PROVIDERS=ollama,judge_a
+AUTO_EVAL_JUDGE_A_API_BASE=https://your-judge-provider.example/v1/chat/completions
+AUTO_EVAL_JUDGE_A_API_KEY=your-judge-key
+AUTO_EVAL_JUDGE_A_MODEL=your-judge-model
+```
+
+随后执行：
+
+```powershell
+python model/auto_label_training_samples.py --output model/training_data/auto_labels.jsonl
+```
+
+`auto_gold_candidate` 仍需按抽检与校准批次批准，不能直接用于 SFT。
+
+批准经过校准复核的普通矩阵样本，并导出到既有切分和 SFT 转换链路：
+
+```powershell
+python model/approve_auto_label_batch.py --batch auto-20260815-calibrated --approve
+python model/export_approved_auto_labels.py --batch auto-20260815-calibrated --output model/training_data/approved_auto.jsonl
+python model/build_dataset.py --input model/training_data/approved_auto.jsonl --output model/training_data/approved_splits
+python model/prepare_sft_dataset.py --input model/training_data/approved_splits/train.jsonl --output model/training_data/tripcraft_sft_train.json
+```
+
+外部教师模型不能同时作为裁判。若它是当前生成模型，`AUTO_EVAL_JUDGE_PROVIDERS` 必须配置两个不同于该教师的模型，例如 `ollama,judge_a`；只有一个独立裁判时，结果会保留为 `silver`，不会成为自动高置信候选。
 
 ---
 
-## 四、阶段二：GSPO 偏好优化
+## 三、SFT 环境与训练
 
-### 4.1 训练配置
-- [ ] 创建 GSPO 训练配置 `model/gspo_config.yaml`：
-  ```yaml
-  model_name_or_path: /models/tripcraft-sft  # SFT 模型
-  stage: gspo
-  do_train: true
-  finetuning_type: lora
-  lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
-  lora_rank: 8
-  lora_alpha: 16
-  quantization_bit: 4
-  quantization_method: bitsandbytes
+- [ ] 准备独立的 Python 3.10+ 训练环境与 CUDA 对应的 PyTorch；不改动后端运行环境。
+- [ ] 安装当前 LLaMA-Factory 与 4-bit QLoRA 依赖，验证 GPU 与 `bitsandbytes` 可用。
+- [ ] 选择与线上 Ollama 兼容的 Qwen Instruct 基座模型，并记录版本和许可证。
+- [x] 提供 [model/sft_config.yaml](model/sft_config.yaml) 和 [model/LLAMA_FACTORY_DATASET.md](model/LLAMA_FACTORY_DATASET.md)。
+- [ ] 将转换后的训练 JSON 复制到 LLaMA-Factory 数据目录，并注册 `tripcraft_sft_train`。
+- [ ] 在评测门槛通过后执行 SFT；记录基座模型、数据 manifest、配置哈希、训练日志与 LoRA 输出路径。
 
-  dataset: tripcraft_gspo
-  template: qwen
-  cutoff_len: 2048
+```powershell
+llamafactory-cli train E:\AI-project\TripCraft\model\sft_config.yaml
+```
 
-  output_dir: /models/tripcraft-gspo
-  num_train_epochs: 1
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8
-  learning_rate: 5e-6
-  warmup_ratio: 0.1
-  logging_steps: 10
-  save_steps: 50
-  bf16: true
-  ```
-
-### 4.2 启动 GSPO 训练
-- [ ] 启动训练：
-  ```bash
-  llamafactory-cli train ../model/gspo_config.yaml
-  ```
-- [ ] 监控显存（GSPO 比 SFT 更吃显存，注意 OOM）
-- [ ] 如果 OOM：减小 `cutoff_len` 到 1024 或减少 `lora_rank` 到 4
-- [ ] 监控 reward 上升趋势
-- [ ] 预计训练时间：1-2 小时（150 条 × 1 epoch）
-
-### 4.3 GSPO 模型测试
-- [ ] 合并 LoRA 权重
-- [ ] 对比 SFT 和 GSPO 输出质量
-- [ ] 验证：GSPO 后的模型是否更倾向生成验证通过的行程
+根据显存调整 `cutoff_len`、batch size 与梯度累积。先从小样本 smoke run 开始，确认输出严格符合协议后再训练完整数据。
 
 ---
 
-## 五、模型部署
+## 四、离线评测与上线门槛
 
-### 5.1 安装 Ollama
-- [ ] 下载安装 Ollama：https://ollama.com
-- [ ] 将合并后的模型转为 GGUF 格式：
-  ```bash
-  python convert.py /models/tripcraft-gspo --outtype f16
-  ```
-- [ ] 创建 Ollama 模型：
-  ```bash
-  ollama create tripcraft -f Modelfile
-  ```
+- [x] 离线评测脚本统计 Schema 合法率、候选 POI 违规率、业务规则通过率、无需修复率、P95 时延，且不调用外部地图 API。
+- [ ] 每个候选 checkpoint 在固定 validation/test 集上执行评测，保存原始预测 JSONL 与报告。
+- [ ] Schema 合法率 >= 99%。
+- [ ] 候选 POI 违规引用率 = 0。
+- [ ] 预算、路线、时长业务规则通过率 >= 98%。
+- [ ] 无需修复率 >= 95%。
+- [ ] 与通用 Qwen、本地 SFT、外部 API 和确定性降级比较质量、P95 时延与成本。
 
-### 5.2 后端接入
-- [ ] 更新 `backend/services/llm_service.py`：
-  - API 地址改为 `http://localhost:11434/api/chat`
-  - 模型名改为 `tripcraft`
-  - 请求格式改为 Ollama 兼容
-- [ ] 更新 `backend/config.py`：
-  - `llm_api_base` 改为 Ollama 地址
-  - `llm_model` 改为 `tripcraft`
-- [ ] 测试本地模型生成行程
+```powershell
+python model/evaluate_model.py --test model/training_data/splits/test.jsonl --predictions predictions.jsonl --output evaluation.json
+```
 
-### 5.3 效果对比
-- [ ] 对比三个版本的生成质量：
-  1. 原始 LongCat-2.0（远程 API）
-  2. SFT 微调后（本地）
-  3. GSPO 优化后（本地）
-- [ ] 对比指标：
-  - 行程 JSON 格式正确率
-  - 验证通过率（景点真实/预算合规/路线合理）
-  - 生成速度（本地 vs 远程）
-  - 行程质量（评分优先/路线就近/时段合理）
+未达标的模型不得替换线上默认 Ollama 模型；系统继续使用现有 Provider 路由与确定性降级。
 
 ---
 
-## 六、时间线
+## 五、部署与后续
 
-| 阶段 | 内容 | 预计时间 | 依赖 |
-|---|---|---|---|
-| 一 | 环境准备 | 2 小时 | 无 |
-| 二 | 数据生成 | 2-3 小时 | 无（可和一并行） |
-| 三 | SFT 训练 | 4-6 小时 | 一 + 二 |
-| 四 | GSPO 训练 | 2-3 小时 | 三 |
-| 五 | 部署接入 | 2 小时 | 四 |
-| **总计** | | **12-16 小时** | |
-
----
-
-## 七、风险与降级
-
-| 风险 | 降级方案 |
-|---|---|
-| Python 3.9 不兼容 LLaMA-Factory | 用 unsloth 替代，或升级 Python |
-| 16G 显存 OOM | 减小 cutoff_len / lora_rank / 用 8-bit 代替 4-bit |
-| SFT 训练 loss 不下降 | 检查数据格式、增大 learning_rate、增加 epoch |
-| GSPO 训练 OOM | 跳过 GSPO，只用 SFT |
-| Ollama 不支持 Qwen2 | 用 vLLM 部署，或转 ONNX 格式 |
-| 训练数据不足 | 用 mock 增加生成量，或数据增强（同义改写 prompt） |
-
----
-
-## 八、验收标准
-
-- [ ] SFT 模型能直接输出合法 JSON 行程（不需要清理 markdown 标记）
-- [ ] SFT 模型生成的行程验证通过率 ≥ 80%
-- [ ] GSPO 模型生成的行程质量优于 SFT（路线更合理/评分更高）
-- [ ] 本地模型生成速度 < 10 秒（vs 远程 API 30-40 秒）
-- [ ] 后端成功切换到本地模型，功能正常
+- [ ] 合并通过验收的 LoRA，转换为 Ollama 可导入格式并创建版本化模型，例如 `tripcraft:sft-YYYYMMDD`。
+- [ ] 先在 staging 将 `OLLAMA_MODEL` 指向新标签，完成真实生成、流式聊天、超时和降级回归测试。
+- [ ] 记录上线模型版本，支持通过配置立即回滚至通用 Qwen 或 `disabled` Provider。
+- [ ] GSPO 仅在 SFT 达标、存在足够人工审核的偏好对、且有单独实验方案时再立项；当前不执行 GSPO。

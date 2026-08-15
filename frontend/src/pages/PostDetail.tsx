@@ -1,21 +1,16 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { Spin, message } from "antd";
-import { ArrowLeft, Heart, MessageSquare, Eye, MapPin, Send } from "lucide-react";
+import { ArrowLeft, Heart, MessageSquare, Eye, Send } from "lucide-react";
 import MarkdownRenderer from "../components/MarkdownRenderer";
 import PostcardFlipCard from "../components/PostcardFlipCard";
-import { getPost, getComments, createComment, likePost, unlikePost, isLoggedIn, type PostDetail as PostDetailType, type Itinerary } from "../services/api";
-
-interface Comment {
-  id: string; content: string; created_at: string;
-  user_nickname: string;
-}
+import { getPost, getComments, createComment, likePost, unlikePost, isLoggedIn, type PostComment, type PostDetail as PostDetailType, type Itinerary } from "../services/api";
 
 export default function PostDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [post, setPost] = useState<PostDetailType | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
+  const [comments, setComments] = useState<PostComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [commentText, setCommentText] = useState("");
   const [liked, setLiked] = useState(false);
@@ -31,10 +26,6 @@ export default function PostDetail() {
         try { setTripJson(JSON.parse(data.trip_json)); } catch {}
       }
       // 检查是否已点赞
-      const token = localStorage.getItem("tripcraft-token");
-      if (token) {
-        likePost(parseInt(id)).catch(() => {});
-      }
     }).finally(() => setLoading(false));
 
     getComments(parseInt(id)).then(setComments).catch(() => {});
@@ -72,7 +63,7 @@ export default function PostDetail() {
     return <div className="min-h-screen flex items-center justify-center"><Spin size="large" /></div>;
   }
 
-  if (!post || post.error) {
+  if (!post) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="text-center">

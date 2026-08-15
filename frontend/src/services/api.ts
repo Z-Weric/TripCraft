@@ -391,12 +391,19 @@ export async function unlikePost(id: number): Promise<{ status?: string; liked?:
   return data;
 }
 
-export async function getComments(postId: number): Promise<{ id: number; content: string; created_at: string; author: { id: number; nickname: string } }[]> {
+export interface PostComment {
+  id: string;
+  content: string;
+  user_nickname: string;
+  created_at: string;
+}
+
+export async function getComments(postId: number): Promise<PostComment[]> {
   const { data } = await axios.get(`${API_BASE}/api/posts/${postId}/comments`);
   return data;
 }
 
-export async function createComment(postId: number, content: string): Promise<{ status?: string; id?: number }> {
+export async function createComment(postId: number, content: string): Promise<{ status?: string; id?: string }> {
   const token = localStorage.getItem("tripcraft-token");
   const headers = { Authorization: `Bearer ${token}` };
   const { data } = await axios.post(`${API_BASE}/api/posts/${postId}/comments`, { content }, { headers });
@@ -505,5 +512,52 @@ export async function updateTrip(id: number, itinerary: Itinerary): Promise<{ st
   const token = localStorage.getItem("tripcraft-token");
   const headers = { Authorization: `Bearer ${token}` };
   const { data } = await axios.put(`${API_BASE}/api/itineraries/${id}`, { itinerary }, { headers });
+  return data;
+}
+
+// ===== 训练样本审核（仅 TRAINING_REVIEWER_EMAILS 白名单账号） =====
+
+export type TrainingReviewStatus = "pending" | "needs_adjudication" | "approved" | "rejected";
+export type TrainingLabel = "gold" | "silver" | "rejected";
+export type TrainingDimensionValue = "pass" | "minor_issue" | "reject";
+
+export type TrainingReviewDimensions = Record<
+  "poi_accuracy" | "route_reasonableness" | "budget" | "schedule" | "readability" | "preference_match",
+  TrainingDimensionValue
+>;
+
+export interface TrainingReviewCandidate {
+  trip_id: number;
+  destination: string;
+  days: number;
+  budget: number;
+  preferences: string[];
+  itinerary: Itinerary;
+  verification: Verification | null;
+  traceability: Pick<TripDetail, "model_version" | "planner_version" | "poi_version" | "generation_source" | "validation_status">;
+  review: {
+    status: TrainingReviewStatus;
+    final_label: TrainingLabel | null;
+    decision_count: number;
+    decisions: Array<{ label: TrainingLabel; dimensions: TrainingReviewDimensions; error_codes: string[]; created_at: string | null }>;
+  };
+}
+
+function trainingReviewHeaders() {
+  return { Authorization: `Bearer ${localStorage.getItem("tripcraft-token")}` };
+}
+
+export async function listTrainingReviewCandidates(status: TrainingReviewStatus = "pending"): Promise<{ items: TrainingReviewCandidate[]; status: TrainingReviewStatus }> {
+  const { data } = await axios.get(`${API_BASE}/api/training-reviews/candidates`, { params: { status }, headers: trainingReviewHeaders() });
+  return data;
+}
+
+export async function submitTrainingReview(tripId: number, payload: { label: TrainingLabel; dimensions: TrainingReviewDimensions; error_codes: string[] }): Promise<{ status: TrainingReviewStatus; final_label: TrainingLabel | null; decision_count: number }> {
+  const { data } = await axios.post(`${API_BASE}/api/training-reviews/${tripId}`, payload, { headers: trainingReviewHeaders() });
+  return data;
+}
+
+export async function resolveTrainingReview(tripId: number, label: TrainingLabel): Promise<{ status: TrainingReviewStatus; final_label: TrainingLabel }> {
+  const { data } = await axios.post(`${API_BASE}/api/training-reviews/${tripId}/resolve`, { label }, { headers: trainingReviewHeaders() });
   return data;
 }

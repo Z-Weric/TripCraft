@@ -1,0 +1,35 @@
+# LLaMA-Factory SFT configuration for the allow-listed TripCraft narrative task.
+# Replace all paths with paths valid on the training machine.
+model_name_or_path: /models/Qwen2.5-7B-Instruct
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+lora_rank: 8
+lora_alpha: 16
+lora_dropout: 0.05
+
+quantization_bit: 4
+quantization_method: bitsandbytes
+
+dataset: tripcraft_sft_train
+dataset_dir: /path/to/LLaMA-Factory/data
+template: qwen
+cutoff_len: 2048
+max_samples: null
+overwrite_cache: true
+preprocessing_num_workers: 4
+
+output_dir: /models/tripcraft-sft-lora
+num_train_epochs: 3.0
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+logging_steps: 10
+save_steps: 50
+save_total_limit: 2
+plot_loss: true
+bf16: true
+gradient_checkpointing: true

@@ -13,6 +13,7 @@ const Community = lazy(() => import("../pages/Community"));
 const PostDetail = lazy(() => import("../pages/PostDetail"));
 const PostPublish = lazy(() => import("../pages/PostPublish"));
 const FoodPlaza = lazy(() => import("../pages/FoodPlaza"));
+const TrainingReview = lazy(() => import("../pages/TrainingReview"));
 
 function PageFallback() {
   return (
@@ -74,6 +75,10 @@ export const routes: RouteObject[] = [
   {
     path: "/food",
     element: withBoundary(<FoodPlaza />),
+  },
+  {
+    path: "/training-review",
+    element: withBoundary(<TrainingReview />),
   },
 ];
 

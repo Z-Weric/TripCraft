@@ -1,6 +1,6 @@
 """数据模型 — 景点数据库 + 用户反馈 + 行程持久化 (v2 MySQL)"""
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, Index, event, inspect, text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, Index, UniqueConstraint, event, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 import os
@@ -269,6 +269,99 @@ class TripQualityLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class TrainingReview(Base):
+    """Review state for a training-data candidate; reviewer identity stays internal."""
+    __tablename__ = "training_reviews"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_id = Column(Integer, nullable=False, unique=True, index=True)
+    status = Column(String(30), nullable=False, default="pending", index=True)
+    final_label = Column(String(20), nullable=True, index=True)
+    resolved_by = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TrainingReviewDecision(Base):
+    """One structured decision per reviewer/trip; never exported with user data."""
+    __tablename__ = "training_review_decisions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_id = Column(Integer, nullable=False, index=True)
+    reviewer_id = Column(Integer, nullable=False, index=True)
+    label = Column(String(20), nullable=False)
+    dimensions_json = Column(Text, nullable=False)
+    error_codes = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("trip_id", "reviewer_id", name="uq_training_review_decision_reviewer"),
+    )
+
+
+class TrainingScenario(Base):
+    """A reproducible synthetic request used only for offline model evaluation."""
+    __tablename__ = "training_scenarios"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scenario_key = Column(String(64), nullable=False, unique=True, index=True)
+    request_json = Column(Text, nullable=False)
+    bucket_json = Column(Text, nullable=False)
+    expected_risks = Column(String(255), nullable=True)
+    matrix_version = Column(String(50), nullable=False)
+    scenario_type = Column(String(30), nullable=False, default="matrix", index=True)
+    random_seed = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrainingGenerationRun(Base):
+    """One endpoint generation for a synthetic scenario, isolated from SavedTrip."""
+    __tablename__ = "training_generation_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scenario_id = Column(Integer, nullable=False, index=True)
+    generator_model = Column(String(100), nullable=False)
+    response_json = Column(Text, nullable=False)
+    verification_json = Column(Text, nullable=True)
+    generation_source = Column(String(30), nullable=True)
+    validation_status = Column(String(30), nullable=True)
+    fallback_reason = Column(Text, nullable=True)
+    latency_ms = Column(Integer, nullable=True)
+    output_hash = Column(String(64), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrainingJudgment(Base):
+    """A rubric score from one judge model for one offline generation run."""
+    __tablename__ = "training_judgments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, nullable=False, index=True)
+    judge_provider = Column(String(50), nullable=False)
+    judge_model = Column(String(100), nullable=False)
+    rubric_json = Column(Text, nullable=False)
+    prompt_hash = Column(String(64), nullable=False)
+    latency_ms = Column(Integer, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrainingAutoLabel(Base):
+    """Rule-versioned automatic candidate label; never directly becomes human gold."""
+    __tablename__ = "training_auto_labels"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, nullable=False, unique=True, index=True)
+    label = Column(String(30), nullable=False, index=True)
+    confidence = Column(Float, nullable=True)
+    rule_version = Column(String(50), nullable=False)
+    decision_json = Column(Text, nullable=False)
+    approval_status = Column(String(30), nullable=False, default="pending", index=True)
+    approval_batch = Column(String(100), nullable=True, index=True)
+    approved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db():
     """初始化数据库 + 写入种子景点数据"""
     Base.metadata.create_all(engine)
@@ -312,6 +405,11 @@ def _apply_additive_migrations() -> None:
             "error_codes": "VARCHAR(500) NULL",
             "reason_json": "TEXT NOT NULL",
             "created_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+        },
+        "training_auto_labels": {
+            "approval_status": "VARCHAR(30) DEFAULT 'pending'",
+            "approval_batch": "VARCHAR(100) NULL",
+            "approved_at": "DATETIME NULL",
         },
     }
     inspector = inspect(engine)
