@@ -35,6 +35,11 @@ class SpotVerificationTest(unittest.IsolatedAsyncioTestCase):
             result = await verify_spot_poi("西湖", 30.25, 120.15, KNOWN_POIS, 1)
         self.assertEqual(result, {"valid": True, "source": "local"})
 
+    async def test_prefers_exact_local_match_over_external_rejection(self):
+        with patch("services.verify_service._verify_spot_external", new=AsyncMock(return_value=False)):
+            result = await verify_spot_poi("西湖", 30.25, 120.15, KNOWN_POIS, 1)
+        self.assertEqual(result, {"valid": True, "source": "local"})
+
     async def test_rejects_local_coordinate_mismatch(self):
         with patch("services.verify_service._verify_spot_external", new=AsyncMock(return_value=None)):
             result = await verify_spot_poi("西湖", 31.25, 121.15, KNOWN_POIS, 1)

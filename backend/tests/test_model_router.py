@@ -52,6 +52,18 @@ class ModelRouterTest(unittest.TestCase):
         self.assertIn("long_itinerary", route.reason)
         self.assertIn("complex_preferences", route.reason)
 
+    def test_schema_repair_keeps_external_default_provider(self):
+        external = FakeProvider("openai-compatible:teacher")
+        local = FakeProvider("ollama:qwen")
+        with (
+            patch("services.llm_service.get_default_provider", return_value=external),
+            patch("services.llm_service.get_fallback_provider", return_value=local),
+        ):
+            route = route_model_request("itinerary", destination="杭州", days=3, repair_errors=["invalid JSON"])
+
+        self.assertIs(route.primary, external)
+        self.assertEqual(route.reason, "schema_repair")
+
     def test_disabled_fallback_never_triggers_external_route(self):
         local = FakeProvider("ollama:qwen")
         with (

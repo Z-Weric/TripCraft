@@ -1,0 +1,1 @@
+{"scenario_id": "e05a51643ac7a85755cc2f4d", "request": {"destination": "杭州", "days": 5, "budget": 1250, "preferences": ["自然风光", "美食"]}, "bucket": {"city": "杭州", "days": 5, "budget_tier": "compact", "preferences": ["自然风光", "美食"]}, "expected_risks": [], "matrix_version": "benchmark-matrix-v1", "scenario_type": "matrix", "seed": 20260819}

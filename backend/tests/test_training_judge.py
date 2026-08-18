@@ -9,9 +9,16 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "model")
 if MODEL_DIR not in sys.path:
     sys.path.insert(0, MODEL_DIR)
 
-from services.training_judge_service import JudgeOutcome, aggregate_judgments, build_configured_judge_providers, hard_gate
+from services.training_judge_service import (
+    JudgeOutcome,
+    aggregate_judgments,
+    apply_evidence_consensus,
+    build_configured_judge_providers,
+    hard_gate,
+)
 from generate_benchmark_cases import build_cases
 from export_approved_auto_labels import build_auto_sft_sample
+from auto_label_training_samples import eligible_for_auto_approval
 
 
 def _response(**overrides):
@@ -35,7 +42,8 @@ def _outcome(provider: str, **overrides):
         "preference_match": 5,
         "readability": 4,
         "actionability": 4,
-        "unsupported_claims": [],
+        "contradicted_claims": [],
+        "unverified_claims": [],
         "error_codes": [],
         "recommendation": "accept",
         "confidence": 0.95,
@@ -56,12 +64,66 @@ class TrainingJudgeTest(unittest.TestCase):
         decision = aggregate_judgments([], [_outcome("judge-a"), _outcome("judge-b")], accept_confidence=0.90)
         self.assertEqual(decision.label, "auto_gold_candidate")
         self.assertGreaterEqual(decision.confidence, 0.90)
+        self.assertTrue(eligible_for_auto_approval(decision))
 
-    def test_unsupported_claim_or_disagreement_cannot_be_auto_candidate(self):
-        rejected = aggregate_judgments([], [_outcome("judge-a", unsupported_claims=["invented price"]), _outcome("judge-b")])
+    def test_auto_approval_allows_unknown_claims_by_default(self):
+        silver = aggregate_judgments([], [_outcome("judge-a", unverified_claims=["opening hours"]), _outcome("judge-b")])
+        self.assertEqual(silver.label, "auto_gold_candidate")
+        self.assertTrue(eligible_for_auto_approval(silver))
+
+    def test_repaired_candidate_can_be_auto_candidate_when_other_gates_pass(self):
+        decision = aggregate_judgments(["REPAIR_REQUIRED"], [_outcome("judge-a"), _outcome("judge-b")])
+        self.assertEqual(decision.label, "auto_gold_candidate")
+
+    def test_one_independent_judge_cannot_become_auto_candidate(self):
+        decision = aggregate_judgments([], [_outcome("judge-a")])
+        self.assertEqual(decision.label, "silver")
+        self.assertFalse(eligible_for_auto_approval(decision))
+
+    def test_contradicted_claim_rejects_but_unverified_claim_stays_silver(self):
+        rejected = aggregate_judgments([], [_outcome("judge-a", contradicted_claims=["wrong price"]), _outcome("judge-b")])
         self.assertEqual(rejected.label, "negative")
-        silver = aggregate_judgments([], [_outcome("judge-a", readability=5), _outcome("judge-b", readability=1)])
+        unverified = aggregate_judgments(
+            [],
+            [_outcome("judge-a", unverified_claims=["opening hours"], recommendation="reject"), _outcome("judge-b")],
+        )
+        self.assertEqual(unverified.label, "auto_gold_candidate")
+        silver = aggregate_judgments([], [_outcome("judge-a", readability=5, recommendation="reject"), _outcome("judge-b", readability=1)])
         self.assertEqual(silver.label, "silver")
+
+    def test_unknown_claims_can_be_strictly_blocked_by_configuration(self):
+        from services import training_judge_service
+
+        original = training_judge_service.settings.auto_eval_allow_unverified_claims
+        training_judge_service.settings.auto_eval_allow_unverified_claims = False
+        try:
+            decision = aggregate_judgments([], [_outcome("judge-a", unverified_claims=["opening hours"]), _outcome("judge-b")])
+            self.assertEqual(decision.label, "silver")
+        finally:
+            training_judge_service.settings.auto_eval_allow_unverified_claims = original
+
+    def test_cited_unanimous_evidence_resolves_unverified_claim(self):
+        claim = "西湖可划船"
+        evidence = [{"claim": claim, "claim_hash": "claim-1", "sources": [{"url": "https://official.example/boating"}]}]
+        outcomes = [_outcome("judge-a", unverified_claims=[claim]), _outcome("judge-b", unverified_claims=[claim])]
+        reviews = [
+            {"claim_verdicts": [{"claim_hash": "claim-1", "verdict": "supported", "evidence_urls": ["https://official.example/boating"]}]},
+            {"claim_verdicts": [{"claim_hash": "claim-1", "verdict": "supported", "evidence_urls": ["https://official.example/boating"]}]},
+        ]
+        apply_evidence_consensus(outcomes, reviews, evidence)
+        self.assertEqual(outcomes[0].rubric["unverified_claims"], [])
+        self.assertEqual(outcomes[1].rubric["unverified_claims"], [])
+
+    def test_conflicting_or_uncited_evidence_remains_unverified(self):
+        claim = "西湖可划船"
+        evidence = [{"claim": claim, "claim_hash": "claim-1", "sources": [{"url": "https://official.example/boating"}]}]
+        outcomes = [_outcome("judge-a", unverified_claims=[claim]), _outcome("judge-b", unverified_claims=[claim])]
+        reviews = [
+            {"claim_verdicts": [{"claim_hash": "claim-1", "verdict": "supported", "evidence_urls": ["https://official.example/boating"]}]},
+            {"claim_verdicts": [{"claim_hash": "claim-1", "verdict": "refuted", "evidence_urls": ["https://official.example/boating"]}]},
+        ]
+        apply_evidence_consensus(outcomes, reviews, evidence)
+        self.assertEqual(outcomes[0].rubric["unverified_claims"], [claim])
 
     def test_matrix_generation_is_deterministic_and_challenges_are_explicit(self):
         challenge = {"id": "challenge", "request": {"destination": "杭州", "days": 1, "budget": 100, "preferences": []}, "expected_risks": ["budget_pressure"]}
@@ -95,8 +157,24 @@ class TrainingJudgeTest(unittest.TestCase):
             settings.auto_eval_judge_a_api_base, settings.auto_eval_judge_a_api_key, settings.auto_eval_judge_a_model = original["a_url"], original["a_key"], original["a_model"]
             settings.auto_eval_judge_b_api_base, settings.auto_eval_judge_b_api_key, settings.auto_eval_judge_b_model = original["b_url"], original["b_key"], original["b_model"]
 
+    def test_second_judge_can_reuse_only_the_configured_provider_credentials(self):
+        from services import training_judge_service
+
+        settings = training_judge_service.settings
+        original = (settings.auto_eval_judge_providers, settings.auto_eval_judge_b_api_base, settings.auto_eval_judge_b_api_key, settings.auto_eval_judge_b_model)
+        settings.auto_eval_judge_providers = "judge_b"
+        settings.auto_eval_judge_b_api_base = ""
+        settings.auto_eval_judge_b_api_key = ""
+        settings.auto_eval_judge_b_model = "judge-b"
+        try:
+            provider = build_configured_judge_providers()[0][1]
+            self.assertTrue(provider.available)
+            self.assertEqual(provider.model_id, "openai-compatible:judge-b")
+        finally:
+            settings.auto_eval_judge_providers, settings.auto_eval_judge_b_api_base, settings.auto_eval_judge_b_api_key, settings.auto_eval_judge_b_model = original
+
     def test_approved_export_uses_only_sanitized_training_fields(self):
-        label = type("Label", (), {"id": 8, "approval_batch": "calibrated", "confidence": 0.95, "rule_version": "v1"})()
+        label = type("Label", (), {"id": 8, "label": "auto_gold_candidate", "approval_batch": "calibrated", "approval_source": "calibrated_auto", "confidence": 0.95, "rule_version": "v1"})()
         run = type("Run", (), {"id": 9, "response_json": '{"itinerary":{"summary":"ok","itinerary":[]}}', "generation_source": "llm", "validation_status": "valid", "generator_model": "teacher"})()
         scenario = type("Scenario", (), {"request_json": '{"destination":"杭州","days":1,"budget":500,"preferences":[]}', "matrix_version": "matrix-v1"})()
         sample = build_auto_sft_sample(label, run, scenario)
@@ -104,6 +182,7 @@ class TrainingJudgeTest(unittest.TestCase):
         self.assertEqual(sample["quality_label"], "gold")
         self.assertNotIn("user_id", str(sample))
         self.assertEqual(sample["metadata"]["approval_batch"], "calibrated")
+        self.assertEqual(sample["metadata"]["approval_source"], "calibrated_auto")
 
 
 if __name__ == "__main__":

@@ -47,7 +47,11 @@ def route_model_request(
         and fallback.model_id != primary.model_id
     )
     complex_request = reasons != ["standard_local_request"]
-    if complex_request and fallback_allowed:
+    # Complex requests are escalated only when the normal provider is local.
+    # If an external teacher is already the default, a schema retry must keep
+    # that teacher instead of silently switching to the local fallback.
+    should_escalate = primary.model_id.startswith("ollama:")
+    if complex_request and fallback_allowed and should_escalate:
         primary, fallback = fallback, primary
     return ModelRoute(
         primary=primary,

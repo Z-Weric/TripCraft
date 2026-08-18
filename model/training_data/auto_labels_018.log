@@ -1,0 +1,11 @@
+﻿python : E:\AI-project\TripCraft\model\auto_label_training_samples.py:118: DeprecationWarning: datetime.datetime.utcnow
+() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UT
+C: datetime.datetime.now(datetime.UTC).
+At line:15 char:3321
++ ... pgrep\bin'; python model/auto_label_training_samples.py --output mode ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (E:\AI-project\T...(datetime.UTC).:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  label.approved_at = datetime.utcnow()
+{"labeled": 30, "approved": 21, "counts": {"negative": 8, "auto_gold_candidate": 21, "silver": 1}, "output": "model\\training_data\\auto_labels_018.jsonl", "repair_trigger": {"triggered": false, "reason": "below_threshold", "pending": 15, "threshold": 40}}

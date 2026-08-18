@@ -28,9 +28,29 @@ class Settings(BaseSettings):
     auto_eval_judge_b_api_key: str = ""
     auto_eval_judge_b_model: str = ""
     auto_eval_max_concurrency: int = Field(default=2, gt=0, le=8)
-    auto_eval_timeout: int = Field(default=45, gt=0, le=300)
+    auto_eval_timeout: int = Field(default=90, gt=0, le=300)
     auto_eval_accept_confidence: float = Field(default=0.90, ge=0, le=1)
+    # Relaxed promotion policy: unknown narrative claims are not factual failures.
+    auto_eval_min_core_score: int = Field(default=3, ge=1, le=5)
+    auto_eval_allow_unverified_claims: bool = True
+    auto_eval_auto_approve: bool = False
+    auto_eval_auto_approve_confidence: float = Field(default=0.85, ge=0, le=1)
     auto_eval_sample_rate: float = Field(default=0.10, ge=0, le=1)
+    auto_eval_evidence_enabled: bool = False
+    auto_eval_evidence_max_claims: int = Field(default=3, ge=0, le=10)
+    auto_eval_repair_enabled: bool = False
+    # Repair uses the configured external teacher so the local Ollama model
+    # remains an independent judge for repaired narratives.
+    auto_eval_repair_provider: str = "openai_compatible"
+    auto_eval_repair_max_iterations: int = Field(default=2, ge=1, le=3)
+    auto_eval_repair_trigger_enabled: bool = False
+    auto_eval_repair_trigger_threshold: int = Field(default=40, ge=1, le=10000)
+    auto_eval_repair_trigger_batch_size: int = Field(default=40, ge=1, le=1000)
+
+    # Citation-backed web retrieval for offline training-data evidence checks.
+    bocha_api_key: str = ""
+    bocha_search_api_base: str = "https://api.bochaai.com/v1/web-search"
+    bocha_search_timeout: int = Field(default=20, gt=0, le=120)
 
     # Database
     database_url: str = "mysql+pymysql://root:zjy123@localhost:3306/tripcraft?charset=utf8mb4"
@@ -38,8 +58,8 @@ class Settings(BaseSettings):
     # LLM
     llm_api_base: str = "https://api.siliconflow.cn/v1/chat/completions"
     llm_timeout: int = 60
-    llm_default_provider: str = "ollama"
-    llm_fallback_provider: str = "openai_compatible"
+    llm_default_provider: str = "openai_compatible"
+    llm_fallback_provider: str = "ollama"
     llm_enabled_scopes: str = "itinerary,chat"
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen3.5:9b"

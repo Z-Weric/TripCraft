@@ -91,15 +91,18 @@ async def verify_spot_poi(
     verify_external: bool = True,
 ) -> SpotVerification:
     """Use AMap when available, otherwise require a local POI match."""
+    # Planner-selected POIs carry an immutable local id, name, and coordinates.
+    # Treat that exact match as authoritative before an external search, whose
+    # coverage or name normalization can otherwise reject known-good facts.
+    local_pois = known_pois or []
+    if _matches_local_poi(spot_name, lat, lng, local_pois, poi_id):
+        return {"valid": True, "source": "local"}
+
     external_result = await _verify_spot_external(spot_name, lat, lng) if verify_external else None
     if external_result is True:
         return {"valid": True, "source": "external"}
     if external_result is False:
         return {"valid": False, "source": "failed"}
-
-    local_pois = known_pois or []
-    if _matches_local_poi(spot_name, lat, lng, local_pois, poi_id):
-        return {"valid": True, "source": "local"}
     return {"valid": False, "source": "unavailable"}
 
 

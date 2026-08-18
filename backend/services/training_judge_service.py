@@ -8,25 +8,48 @@ import asyncio
 import hashlib
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from config import settings
 from services.llm_provider import LLMProvider, OpenAICompatibleProvider, ProviderError
 
 
-RULE_VERSION = "auto-eval-v1"
+RULE_VERSION = "auto-eval-v3-relaxed-unknowns"
 RUBRIC_FIELDS = ("fact_consistency", "preference_match", "readability", "actionability")
 JUDGE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": [*RUBRIC_FIELDS, "unsupported_claims", "error_codes", "recommendation", "confidence"],
+    "required": [*RUBRIC_FIELDS, "contradicted_claims", "unverified_claims", "error_codes", "recommendation", "confidence"],
     "properties": {
         **{field: {"type": "integer", "minimum": 1, "maximum": 5} for field in RUBRIC_FIELDS},
-        "unsupported_claims": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+        "contradicted_claims": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
+        "unverified_claims": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
         "error_codes": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
         "recommendation": {"type": "string", "enum": ["accept", "reject"]},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    },
+}
+
+EVIDENCE_DEBATE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["claim_verdicts"],
+    "properties": {
+        "claim_verdicts": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["claim_hash", "verdict", "evidence_urls"],
+                "properties": {
+                    "claim_hash": {"type": "string"},
+                    "verdict": {"type": "string", "enum": ["supported", "refuted", "unknown"]},
+                    "evidence_urls": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
+                },
+            },
+        },
     },
 }
 
@@ -48,6 +71,7 @@ class AutoLabelDecision:
     rule_version: str
     hard_errors: list[str]
     judge_outcomes: list[JudgeOutcome]
+    evidence: list[dict[str, Any]] = field(default_factory=list)
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -56,6 +80,7 @@ class AutoLabelDecision:
             "rule_version": self.rule_version,
             "hard_errors": self.hard_errors,
             "judge_outcomes": [asdict(item) for item in self.judge_outcomes],
+            "evidence": self.evidence,
         }
 
 
@@ -75,8 +100,8 @@ def build_configured_judge_providers() -> list[tuple[str, LLMProvider]]:
             settings.auto_eval_judge_a_model,
         ),
         "judge_b": (
-            settings.auto_eval_judge_b_api_base,
-            settings.auto_eval_judge_b_api_key,
+            settings.auto_eval_judge_b_api_base or settings.llm_api_base,
+            settings.auto_eval_judge_b_api_key or settings.siliconflow_api_key,
             settings.auto_eval_judge_b_model,
         ),
     }
@@ -171,7 +196,11 @@ def hard_gate(response: dict[str, Any], request: dict[str, Any]) -> list[str]:
 def _judge_prompt(fact_pack: dict[str, Any], narrative: dict[str, Any]) -> str:
     return f"""You are an offline quality judge for TripCraft.
 Evaluate only the narrative against the supplied immutable fact pack. Do not choose POIs or change route facts.
-Reject factual claims not supported by the fact pack, including invented opening times, prices, transport durations, or attractions.
+Classify factual statements precisely:
+- Put a claim in contradicted_claims only when it directly conflicts with a supplied fact, such as a wrong POI, price, duration, route order, coordinate, or transport cost.
+- Put a claim in unverified_claims when it is absent from the fact pack. Absence is not evidence that the claim is false. Do not put subjective language or generic travel advice there.
+- Do not reject a narrative merely because it has unverified claims. Reject only for direct contradictions or prose that is unusable because it is empty, incoherent, or materially fails the request.
+For automatic training promotion, unverified_claims are allowed when they are not contradicted by the fact pack or evidence. Unknown is not false.
 Score fact consistency, preference match, readability, and actionability from 1 to 5.
 Return only JSON matching the provided schema.
 
@@ -182,6 +211,32 @@ Narrative:
 {json.dumps(narrative, ensure_ascii=False, separators=(',', ':'))}"""
 
 
+def _debate_prompt(
+    fact_pack: dict[str, Any],
+    narrative: dict[str, Any],
+    opposing_rubric: dict[str, Any],
+    evidence: list[dict[str, Any]],
+) -> str:
+    return f"""You are the evidence-review round of an offline TripCraft judge debate.
+Review the other judge's initial assessment, the immutable fact pack, and the citation bundles.
+For each claim hash, return supported only when the cited snippets directly support it, and refuted only when they directly refute it.
+Use unknown for absent, ambiguous, weak, or conflicting evidence. Do not treat fact-pack absence as refutation.
+Every supported/refuted verdict must include one or more URLs from the provided citation bundles.
+Return only JSON matching the provided schema.
+
+Fact pack:
+{json.dumps(fact_pack, ensure_ascii=False, separators=(',', ':'))}
+
+Narrative:
+{json.dumps(narrative, ensure_ascii=False, separators=(',', ':'))}
+
+Other judge initial assessment:
+{json.dumps(opposing_rubric, ensure_ascii=False, separators=(',', ':'))}
+
+Citation bundles:
+{json.dumps(evidence, ensure_ascii=False, separators=(',', ':'))}"""
+
+
 def _normalize_rubric(payload: dict[str, Any]) -> dict[str, Any]:
     for field in RUBRIC_FIELDS:
         if not isinstance(payload.get(field), int) or not 1 <= payload[field] <= 5:
@@ -190,12 +245,13 @@ def _normalize_rubric(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("invalid recommendation")
     if not isinstance(payload.get("confidence"), (int, float)) or not 0 <= payload["confidence"] <= 1:
         raise ValueError("invalid confidence")
-    for field in ("unsupported_claims", "error_codes"):
+    for field in ("contradicted_claims", "unverified_claims", "error_codes"):
         if not isinstance(payload.get(field), list) or not all(isinstance(value, str) for value in payload[field]):
             raise ValueError(f"invalid {field}")
     return {
         **{field: payload[field] for field in RUBRIC_FIELDS},
-        "unsupported_claims": payload["unsupported_claims"][:20],
+        "contradicted_claims": payload["contradicted_claims"][:20],
+        "unverified_claims": payload["unverified_claims"][:20],
         "error_codes": payload["error_codes"][:20],
         "recommendation": payload["recommendation"],
         "confidence": float(payload["confidence"]),
@@ -218,6 +274,89 @@ async def judge_with_provider(provider_name: str, provider: LLMProvider, fact_pa
         return JudgeOutcome(provider_name, provider.model_id, None, prompt_hash, round((time.perf_counter() - started) * 1000), str(exc))
 
 
+async def debate_with_provider(
+    provider: LLMProvider,
+    fact_pack: dict[str, Any],
+    narrative: dict[str, Any],
+    opposing_rubric: dict[str, Any],
+    evidence: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    try:
+        payload = await provider.generate_json(
+            [{"role": "system", "content": _debate_prompt(fact_pack, narrative, opposing_rubric, evidence)}],
+            EVIDENCE_DEBATE_SCHEMA,
+            temperature=0,
+            max_tokens=800,
+        )
+    except (ProviderError, ValueError, TypeError):
+        return None
+    verdicts = payload.get("claim_verdicts")
+    if not isinstance(verdicts, list):
+        return None
+    normalized = []
+    for item in verdicts:
+        if not isinstance(item, dict):
+            continue
+        if item.get("verdict") not in {"supported", "refuted", "unknown"}:
+            continue
+        if not isinstance(item.get("claim_hash"), str) or not isinstance(item.get("evidence_urls"), list):
+            continue
+        normalized.append({
+            "claim_hash": item["claim_hash"],
+            "verdict": item["verdict"],
+            "evidence_urls": [url for url in item["evidence_urls"] if isinstance(url, str)][:5],
+        })
+    return {"claim_verdicts": normalized}
+
+
+def apply_evidence_consensus(
+    outcomes: list[JudgeOutcome],
+    reviews: list[dict[str, Any] | None],
+    evidence: list[dict[str, Any]],
+) -> None:
+    """Only a cited, unanimous supported/refuted verdict changes the initial label."""
+    by_hash = {item["claim_hash"]: item for item in evidence}
+    allowed_urls = {
+        evidence_id: {source.get("url") for source in item.get("sources", []) if source.get("url")}
+        for evidence_id, item in by_hash.items()
+    }
+    review_maps = [
+        {item["claim_hash"]: item for item in review.get("claim_verdicts", [])}
+        for review in reviews
+        if review is not None
+    ]
+    if len(review_maps) != len(outcomes):
+        return
+    consensus: dict[str, str] = {}
+    for evidence_id, item in by_hash.items():
+        entries = [review.get(evidence_id) for review in review_maps]
+        if any(entry is None for entry in entries):
+            consensus[evidence_id] = "unknown"
+            continue
+        verdicts = {entry["verdict"] for entry in entries}
+        citations_valid = all(
+            entry["evidence_urls"] and set(entry["evidence_urls"]).issubset(allowed_urls[evidence_id])
+            for entry in entries
+        )
+        consensus[evidence_id] = verdicts.pop() if len(verdicts) == 1 and citations_valid else "unknown"
+
+    for outcome, review in zip(outcomes, reviews):
+        if outcome.rubric is None:
+            continue
+        outcome.rubric["evidence_review"] = review or {"claim_verdicts": []}
+        unresolved = []
+        contradicted = list(outcome.rubric.get("contradicted_claims", []))
+        for claim in outcome.rubric.get("unverified_claims", []):
+            evidence_id = next((key for key, item in by_hash.items() if item["claim"] == claim), None)
+            verdict = consensus.get(evidence_id, "unknown") if evidence_id else "unknown"
+            if verdict == "refuted":
+                contradicted.append(f"{claim} [external evidence refuted]")
+            elif verdict != "supported":
+                unresolved.append(claim)
+        outcome.rubric["contradicted_claims"] = list(dict.fromkeys(contradicted))
+        outcome.rubric["unverified_claims"] = list(dict.fromkeys(unresolved))
+
+
 def aggregate_judgments(hard_errors: list[str], outcomes: list[JudgeOutcome], accept_confidence: float | None = None) -> AutoLabelDecision:
     threshold = settings.auto_eval_accept_confidence if accept_confidence is None else accept_confidence
     blocking_errors = [error for error in hard_errors if error != "REPAIR_REQUIRED"]
@@ -227,16 +366,22 @@ def aggregate_judgments(hard_errors: list[str], outcomes: list[JudgeOutcome], ac
     if len(valid) < 2:
         return AutoLabelDecision("silver", 0.0, RULE_VERSION, hard_errors, outcomes)
     first, second = valid[:2]
-    if any(item["recommendation"] != "accept" for item in (first, second)):
+    if any(item["contradicted_claims"] for item in (first, second)):
         return AutoLabelDecision("negative", 0.0, RULE_VERSION, hard_errors, outcomes)
-    if first["unsupported_claims"] or second["unsupported_claims"]:
-        return AutoLabelDecision("negative", 0.0, RULE_VERSION, hard_errors, outcomes)
+
+    # A judge recommendation is useful audit context, but it is not a factual
+    # verdict. Providers can reject a plausible statement simply because its
+    # source is absent from the compact fact pack. Keep that uncertainty silver
+    # unless a deterministic gate or an explicit contradiction proves it wrong.
     quality = sum((first[field] + second[field]) / 10 for field in RUBRIC_FIELDS) / len(RUBRIC_FIELDS)
     agreement = 1 - sum(abs(first[field] - second[field]) / 4 for field in RUBRIC_FIELDS) / len(RUBRIC_FIELDS)
     judge_confidence = (first["confidence"] + second["confidence"]) / 2
     confidence = round(0.45 * quality + 0.30 * agreement + 0.25 * judge_confidence, 4)
-    all_core_scores_high = all(item[field] >= 4 for item in (first, second) for field in RUBRIC_FIELDS)
-    if not hard_errors and all_core_scores_high and confidence >= threshold:
+    min_core_score = settings.auto_eval_min_core_score
+    all_core_scores_high = all(item[field] >= min_core_score for item in (first, second) for field in RUBRIC_FIELDS)
+    has_unverified_claims = any(item["unverified_claims"] for item in (first, second))
+    unknowns_block = has_unverified_claims and not settings.auto_eval_allow_unverified_claims
+    if not blocking_errors and not unknowns_block and all_core_scores_high and confidence >= threshold:
         label = "auto_gold_candidate"
     else:
         label = "silver"
@@ -263,5 +408,39 @@ async def judge_generation(
         async with semaphore:
             return await judge_with_provider(name, provider, fact_pack, narrative)
 
-    outcomes = await asyncio.gather(*(run_one(name, provider) for name, provider in independent[:2]))
-    return aggregate_judgments(errors, list(outcomes))
+    outcomes = list(await asyncio.gather(*(run_one(name, provider) for name, provider in independent[:2])))
+    decision = aggregate_judgments(errors, outcomes)
+    # A generator must never evaluate itself. If removing it leaves fewer than
+    # two independent judges, retain the conservative silver decision and skip
+    # evidence debate, which requires an opposing rubric for each judge.
+    if len(outcomes) < 2:
+        return decision
+    claims = [
+        claim
+        for outcome in outcomes
+        if outcome.rubric is not None
+        for claim in outcome.rubric.get("unverified_claims", [])
+    ]
+    if not claims or not settings.auto_eval_evidence_enabled:
+        return decision
+
+    from services.evidence_retrieval_service import retrieve_evidence_for_claims
+
+    bundles = await retrieve_evidence_for_claims(str(request.get("destination") or ""), claims)
+    evidence = [bundle.as_record() for bundle in bundles]
+    if not any(item["sources"] for item in evidence):
+        return AutoLabelDecision(decision.label, decision.confidence, decision.rule_version, decision.hard_errors, outcomes, evidence)
+
+    reviews = await asyncio.gather(*(
+        debate_with_provider(
+            provider,
+            fact_pack,
+            narrative,
+            outcomes[1 - index].rubric or {},
+            evidence,
+        )
+        for index, (_, provider) in enumerate(independent[:2])
+    ))
+    apply_evidence_consensus(outcomes, list(reviews), evidence)
+    resolved = aggregate_judgments(errors, outcomes)
+    return AutoLabelDecision(resolved.label, resolved.confidence, resolved.rule_version, resolved.hard_errors, outcomes, evidence)

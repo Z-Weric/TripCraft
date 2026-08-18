@@ -320,6 +320,8 @@ class TrainingGenerationRun(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     scenario_id = Column(Integer, nullable=False, index=True)
+    parent_run_id = Column(Integer, nullable=True, index=True)
+    repair_iteration = Column(Integer, nullable=False, default=0, index=True)
     generator_model = Column(String(100), nullable=False)
     response_json = Column(Text, nullable=False)
     verification_json = Column(Text, nullable=True)
@@ -346,6 +348,21 @@ class TrainingJudgment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class TrainingEvidence(Base):
+    """Citation bundles retrieved for claims not covered by a fact pack."""
+    __tablename__ = "training_evidence"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, nullable=False, index=True)
+    claim_hash = Column(String(64), nullable=False, index=True)
+    claim_text = Column(Text, nullable=False)
+    query_text = Column(Text, nullable=False)
+    provider = Column(String(50), nullable=False)
+    sources_json = Column(Text, nullable=False)
+    retrieval_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class TrainingAutoLabel(Base):
     """Rule-versioned automatic candidate label; never directly becomes human gold."""
     __tablename__ = "training_auto_labels"
@@ -358,6 +375,7 @@ class TrainingAutoLabel(Base):
     decision_json = Column(Text, nullable=False)
     approval_status = Column(String(30), nullable=False, default="pending", index=True)
     approval_batch = Column(String(100), nullable=True, index=True)
+    approval_source = Column(String(30), nullable=True, index=True)
     approved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -409,7 +427,12 @@ def _apply_additive_migrations() -> None:
         "training_auto_labels": {
             "approval_status": "VARCHAR(30) DEFAULT 'pending'",
             "approval_batch": "VARCHAR(100) NULL",
+            "approval_source": "VARCHAR(30) NULL",
             "approved_at": "DATETIME NULL",
+        },
+        "training_generation_runs": {
+            "parent_run_id": "INTEGER NULL",
+            "repair_iteration": "INTEGER NOT NULL DEFAULT 0",
         },
     }
     inspector = inspect(engine)

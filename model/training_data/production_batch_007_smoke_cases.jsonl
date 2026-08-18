@@ -1,0 +1,1 @@
+{"scenario_id": "bf95c5d13b4048351376521c", "request": {"destination": "西安", "days": 2, "budget": 1200, "preferences": ["亲子"]}, "bucket": {"city": "西安", "days": 2, "budget_tier": "standard", "preferences": ["亲子"]}, "expected_risks": [], "matrix_version": "benchmark-matrix-v1", "scenario_type": "matrix", "seed": 20260817}

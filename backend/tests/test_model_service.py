@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from services.model_service import ModelCallResult, generate_itinerary
+from services.model_service import ModelCallResult, _build_prompt, generate_itinerary
 
 
 def sample_pois():
@@ -39,6 +39,12 @@ def valid_narrative(summary="模型摘要"):
 
 
 class ModelServiceTest(unittest.IsolatedAsyncioTestCase):
+    async def test_prompt_forbids_unsupported_travel_claims(self):
+        prompt = _build_prompt({"destination": "测试城", "itinerary": []})
+        self.assertIn("事实包直接推出", prompt)
+        self.assertIn("可划船", prompt)
+        self.assertIn("天气或季节", prompt)
+
     async def test_returns_complete_deterministic_plan_when_llm_is_unavailable(self):
         with patch(
             "services.model_service._llm_generate",

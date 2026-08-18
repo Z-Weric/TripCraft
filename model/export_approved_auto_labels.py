@@ -26,7 +26,9 @@ def build_auto_sft_sample(label: Any, run: Any, scenario: Any) -> dict[str, Any]
         "output": json.dumps(itinerary, ensure_ascii=False),
         "metadata": {
             "source": "approved_auto_label",
+            "original_auto_label": label.label,
             "approval_batch": label.approval_batch,
+            "approval_source": label.approval_source,
             "auto_label_id": label.id,
             "confidence": label.confidence,
             "rule_version": label.rule_version,
@@ -34,6 +36,8 @@ def build_auto_sft_sample(label: Any, run: Any, scenario: Any) -> dict[str, Any]
             "validation_status": run.validation_status,
             "model_version": run.generator_model,
             "matrix_version": scenario.matrix_version,
+            "parent_run_id": getattr(run, "parent_run_id", None),
+            "repair_iteration": getattr(run, "repair_iteration", 0) or 0,
         },
         "quality_label": "gold",
     }
@@ -50,6 +54,14 @@ def export_batch(batch: str, output: Path) -> int:
                 TrainingAutoLabel.approval_status == "approved",
                 TrainingAutoLabel.approval_batch == batch,
                 TrainingAutoLabel.label == "auto_gold_candidate",
+                TrainingAutoLabel.approval_source.in_(
+                    (
+                        "calibrated_auto",
+                        "automated_evidence_consensus",
+                        "automated_relaxed_policy",
+                        "automated_rejudge",
+                    )
+                ),
                 TrainingScenario.scenario_type == "matrix",
             )
             .order_by(TrainingAutoLabel.id)

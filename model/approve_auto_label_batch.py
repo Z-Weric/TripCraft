@@ -35,6 +35,7 @@ def approve_batch(batch: str, min_confidence: float, limit: int | None = None) -
         for item in labels:
             item.approval_status = "approved"
             item.approval_batch = batch
+            item.approval_source = "calibrated_auto"
             item.approved_at = datetime.utcnow()
         db.commit()
         return len(labels)
